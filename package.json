@@ -13,6 +13,8 @@
     "electron:dev": "concurrently -k \"npm run dev\" \"npm run electron\""
   },
   "dependencies": {
+    "@fontsource/atkinson-hyperlegible-mono": "^5.3.0",
+    "@fontsource/atkinson-hyperlegible-next": "^5.3.0",
     "jspdf": "^4.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
