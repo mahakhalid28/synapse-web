@@ -681,8 +681,10 @@ export default function Explanation({
       <div className="flex flex-1 max-w-[1400px] mx-auto overflow-hidden">
         {/* Main reading area */}
         <main
+          id="main-content"
+          tabIndex={-1}
           aria-label="Lecture explanation"
-          className="flex-1 overflow-y-auto"
+          className="flex-1 overflow-y-auto outline-none"
         >
           <div className="max-w-[720px] px-14 py-10">
             {/* Inline processing status — replaces the old full-screen Processing route */}

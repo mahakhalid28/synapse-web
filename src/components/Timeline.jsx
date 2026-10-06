@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
 import { getInterventionPoints } from "../api";
 
@@ -13,7 +13,6 @@ export default function Timeline({
   const [data,           setData]           = useState(null);
   const [selectedId,     setSelectedId]     = useState(pointId);
   const [activeCategory, setActiveCategory] = useState("all");
-  const mainRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,22 +35,11 @@ export default function Timeline({
   if (!data) {
     return (
       <div className="flex h-full w-full bg-background font-sans overflow-hidden">
-        <a
-          href="#main-content"
-          onClick={(e) => {
-            e.preventDefault();
-            mainRef.current?.focus();
-          }}
-          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-radius-md focus:text-[14px] focus:font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-        >
-          Skip to main content
-        </a>
         <nav aria-label="Main navigation">
           <Sidebar active="home" onNavigate={onNavigate} />
         </nav>
         <main
           id="main-content"
-          ref={mainRef}
           tabIndex={-1}
           className="flex-1 flex items-center justify-center outline-none"
         >
@@ -97,17 +85,6 @@ export default function Timeline({
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
-      <a
-        href="#main-content"
-        onClick={(e) => {
-          e.preventDefault();
-          mainRef.current?.focus();
-        }}
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-radius-md focus:text-[14px] focus:font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-      >
-        Skip to main content
-      </a>
-
       <nav aria-label="Main navigation">
         <Sidebar active="home" onNavigate={onNavigate} />
       </nav>
@@ -115,10 +92,9 @@ export default function Timeline({
       {/* ── Left pane ─────────────────────────────────────────────────────── */}
       <main
         id="main-content"
-        ref={mainRef}
         tabIndex={-1}
         aria-label="Lecture timeline"
-        className="flex-1 min-w-0 overflow-y-auto border-r border-border-default outline-none"
+        className="flex-1 min-w-0 overflow-y-auto border-r border-border-subtle outline-none"
       >
         <div className="px-10 py-10">
 

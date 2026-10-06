@@ -26,7 +26,7 @@ export default function BookmarksScreen({
     <div className="flex h-full w-full bg-paper overflow-hidden">
       <Sidebar active="bookmarks" onNavigate={onNavigate} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="max-w-[700px] px-12 py-12">
 
           <div className="eyebrow mb-3">Bookmarks</div>

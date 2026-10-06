@@ -39,7 +39,7 @@ export default function LibraryScreen({
     <div className="flex h-full w-full bg-paper overflow-hidden">
       <Sidebar active="library" onNavigate={onNavigate} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="max-w-[680px] px-10 py-12">
           {/* ── Header ── */}
           <h1 className="font-serif text-[36px] text-ink leading-none mb-6">

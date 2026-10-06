@@ -155,6 +155,22 @@ function App() {
   // ── Layout: Navbar (slim top bar) + screen below ───────────────────────────
   return (
     <div className="flex flex-col h-screen">
+      {/* One shared skip link, rendered before Navbar so it's genuinely
+        first in tab order on every screen — previously each screen (Home,
+        SubjectLectures, Timeline) rendered its own copy, but since Navbar
+        is a sibling mounted above {activeScreen}, its Settings button
+        always came first in the DOM regardless of which screen's skip
+        link was active, defeating the skip link's purpose. Works via
+        native anchor-jump focus (the target needs id="main-content" +
+        tabIndex={-1}, already true for every screen's own <main>) rather
+        than a per-screen ref + onClick handler, since there's no single
+        ref that could span whichever screen happens to be mounted. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-on-accent focus:px-4 focus:py-2 focus:rounded-radius-md focus:text-[14px] focus:font-medium focus-ring"
+      >
+        Skip to main content
+      </a>
       <Navbar theme={theme} onThemeChange={setTheme} />
       <div className="flex-1 overflow-hidden">
         {activeScreen}

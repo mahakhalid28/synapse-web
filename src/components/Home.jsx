@@ -33,7 +33,6 @@ export default function Home({
   } = useLectureSearch({ onProcess, defaultDepth });
 
   const inputRef = useRef(null);
-  const mainRef = useRef(null);
   const h1Ref = useRef(null);
 
   // Only focus the H1 when this mount is a real in-app navigation back to
@@ -67,24 +66,12 @@ export default function Home({
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
-      <a
-        href="#main-content"
-        onClick={(e) => {
-          e.preventDefault();
-          mainRef.current?.focus();
-        }}
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-radius-md focus:text-[14px] focus:font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-      >
-        Skip to main content
-      </a>
-
       <nav aria-label="Main navigation">
         <Sidebar active="home" onNavigate={onNavigate} />
       </nav>
 
       <main
         id="main-content"
-        ref={mainRef}
         tabIndex={-1}
         aria-labelledby="page-title"
         className="flex-1 overflow-y-auto outline-none"
