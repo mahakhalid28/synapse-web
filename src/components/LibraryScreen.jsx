@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
+import CategoryIcon from "./CategoryIcon";
 import { getLibrary, removeFromLibrary } from "../storage";
-
-const CATEGORY_COLORS = {
-  equation: "#6B5F8C",
-  diagram:  "#8B6B4A",
-  chart:    "#8C5A47",
-  graph:    "#4A8C6B",
-};
 
 export default function LibraryScreen({
   onNavigate = () => {},
@@ -36,45 +30,57 @@ export default function LibraryScreen({
     : library;
 
   return (
-    <div className="flex h-full w-full bg-paper overflow-hidden">
-      <Sidebar active="library" onNavigate={onNavigate} />
+    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+      <nav aria-label="Main navigation">
+        <Sidebar active="library" onNavigate={onNavigate} />
+      </nav>
 
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="max-w-[680px] px-10 py-12">
           {/* ── Header ── */}
-          <h1 className="font-serif text-[36px] text-ink leading-none mb-6">
+          <h1 className="text-[32px] font-bold text-text-primary mb-6">
             My Library
           </h1>
 
           {/* ── Search ── */}
-          <div className="relative mb-8">
-            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-ghost pointer-events-none">
-              <SearchIcon />
-            </span>
-            <input
-              type="text"
-              placeholder="Filter by topic or video title…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full font-sans text-[14px] text-ink bg-paper-soft border border-paper-edge rounded-editorial pl-10 pr-9 py-3 placeholder-ink-ghost focus:outline-none focus:border-[#C4BAA5] transition-colors"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-ghost hover:text-ink text-lg leading-none"
-              >
-                ×
-              </button>
-            )}
+          <div className="mb-8">
+            <label htmlFor="library-search" className="block text-[14px] font-medium text-text-secondary mb-2">
+              Filter by topic or video title
+            </label>
+            <div className="ds-field">
+              <span aria-hidden="true" className="text-text-muted shrink-0">
+                <SearchIcon />
+              </span>
+              <input
+                id="library-search"
+                type="text"
+                placeholder="Filter by topic or video title…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1 bg-transparent text-[16px] text-text-primary placeholder:text-text-muted outline-none"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  className="text-text-muted hover:text-text-primary text-lg leading-none shrink-0 focus-ring rounded-radius-sm"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* ── Section label ── */}
+          {/* ── Section label — a real h2 (not a styled div), closing a
+          pre-existing h1→h3 heading-order gap surfaced by this phase's axe
+          scan (ExplanationCard's title is an h3; nothing filled the h2
+          slot before). */}
           {library.length > 0 && (
             <div className="flex items-center gap-3 mb-5">
-              <span className="font-sans text-[13px] font-medium text-ink">
+              <h2 className="text-[14px] font-medium text-text-primary">
                 Recent Explanations
-              </span>
-              <span className="font-mono text-[13px] bg-ink text-paper px-2.5 py-0.5 rounded-full">
+              </h2>
+              <span className="ds-chip">
                 {library.length}
               </span>
             </div>
@@ -84,7 +90,7 @@ export default function LibraryScreen({
           {library.length === 0 ? (
             <EmptyState />
           ) : visible.length === 0 ? (
-            <p className="font-sans text-[13px] text-ink-ghost mt-2">
+            <p className="text-[14px] text-text-muted mt-2">
               No results for &ldquo;{search}&rdquo;.
             </p>
           ) : (
@@ -113,7 +119,6 @@ export default function LibraryScreen({
 /* ── Compact horizontal card ─────────────────────────────────────────────── */
 
 function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
-  const color = CATEGORY_COLORS[item.category] || "#4A5B8C";
   const thumbnailUrl = item.videoId
     ? `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`
     : null;
@@ -125,9 +130,9 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
     : "";
 
   return (
-    <div className="flex gap-4 p-4 bg-paper-soft border border-paper-edge rounded-editorial hover:border-[#C4BAA5] transition-colors group">
+    <div className="flex gap-4 p-4 bg-surface border border-border-subtle rounded-radius-md hover:border-border-strong transition-colors group">
       {/* Thumbnail — small, fixed width */}
-      <div className="w-[120px] shrink-0 aspect-video rounded-lg overflow-hidden bg-gradient-to-br from-[#3B4870] to-[#8B6B4A] relative">
+      <div className="w-[120px] shrink-0 aspect-video rounded-radius-md overflow-hidden bg-gradient-to-br from-[#3B4870] to-[#8B6B4A] relative">
         {thumbnailUrl && (
           <img
             src={thumbnailUrl}
@@ -137,7 +142,7 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
           />
         )}
         {/* Timestamp chip */}
-        <div className="absolute bottom-1 right-1 font-mono text-[13px] bg-ink/75 text-paper px-1.5 py-0.5 rounded-sm">
+        <div className="absolute bottom-1 right-1 font-mono tabular-nums text-[14px] bg-black/75 text-white px-1.5 py-0.5 rounded-sm">
           {item.timestamp}
         </div>
       </div>
@@ -145,49 +150,47 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Category + date */}
-        <div className="flex items-center gap-1.5 mb-1">
-          <span
-            className="font-sans text-[13px] uppercase tracking-[0.14em] font-medium"
-            style={{ color }}
-          >
-            {item.category}
+        <div className="flex items-center gap-1.5 mb-1 text-[14px]">
+          <CategoryIcon category={item.category} className="text-text-muted" />
+          <span className="font-medium text-text-secondary">
+            {capitalize(item.category)}
           </span>
-          <span className="text-paper-rule text-[13px]">·</span>
-          <span className="font-sans text-[13px] text-ink-ghost">
+          <span className="text-border-strong">·</span>
+          <span className="text-text-muted">
             {dateStr}
           </span>
-          {/* Remove button — shows on hover */}
+          {/* Remove button — visible on hover AND keyboard focus (never
+          hover-only), with a real accessible name since "×" alone isn't
+          announced usefully. */}
           <button
             onClick={onRemove}
-            className="ml-auto text-ink-ghost hover:text-ink text-[13px] opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-label="Remove from library"
+            className="ml-auto text-text-muted hover:text-text-primary text-[14px] leading-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity focus-ring rounded-radius-sm"
           >
             ×
           </button>
         </div>
 
         {/* Title */}
-        <h3 className="font-serif text-[15px] text-ink leading-snug line-clamp-2 mb-1">
+        <h3 className="text-[15px] font-semibold text-text-primary leading-snug line-clamp-2 mb-1">
           {item.title}
         </h3>
 
         {/* Video title */}
-        <p className="font-sans text-[13px] text-ink-ghost truncate mb-3">
+        <p className="text-[14px] text-text-muted truncate mb-3">
           {item.videoTitle}
         </p>
 
-        {/* Buttons */}
+        {/* Buttons — neither is "the" primary action for every row in a
+        list, so both stay off the filled-accent treatment (avoids a
+        column of competing accent buttons); Play audio gets the
+        accent-outline variant the spec reserves for Listen-like actions. */}
         <div className="flex gap-2 mt-auto">
-          <button
-            onClick={onReadText}
-            className="flex items-center gap-1.5 bg-ink text-paper font-sans text-[13px] font-medium uppercase tracking-[0.07em] px-3 py-1.5 rounded-lg hover:bg-[#0f0c08] transition-colors"
-          >
+          <button onClick={onReadText} className="ds-btn-secondary">
             <DocIcon />
             Read text
           </button>
-          <button
-            onClick={onPlayAudio}
-            className="flex items-center gap-1.5 border border-paper-edge text-ink font-sans text-[13px] font-medium uppercase tracking-[0.07em] px-3 py-1.5 rounded-lg hover:border-[#C4BAA5] hover:bg-paper transition-colors"
-          >
+          <button onClick={onPlayAudio} className="ds-btn-accent-outline">
             <PlayIcon />
             Play audio
           </button>
@@ -202,10 +205,10 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="w-12 h-12 rounded-full bg-paper-edge flex items-center justify-center mb-4">
-        <span className="text-ink-ghost text-lg">▶</span>
+      <div className="w-12 h-12 rounded-full bg-surface-muted flex items-center justify-center mb-4">
+        <span aria-hidden="true" className="text-text-muted text-lg">▶</span>
       </div>
-      <p className="font-sans text-[13px] text-ink-ghost max-w-[260px] leading-relaxed">
+      <p className="text-[14px] text-text-muted max-w-[260px] leading-relaxed">
         Open any explanation from the Timeline and it will be saved here
         automatically.
       </p>
@@ -213,11 +216,17 @@ function EmptyState() {
   );
 }
 
-/* ── Icons ───────────────────────────────────────────────────────────────── */
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+}
+
+/* ── Icons — all decorative/aria-hidden; the buttons/fields that use them ── */
+/* ── carry their own visible text label or accessible name.             ── */
 
 function SearchIcon() {
   return (
     <svg
+      aria-hidden="true"
       width="14"
       height="14"
       viewBox="0 0 16 16"
@@ -235,6 +244,7 @@ function SearchIcon() {
 function DocIcon() {
   return (
     <svg
+      aria-hidden="true"
       width="12"
       height="12"
       viewBox="0 0 16 16"
@@ -255,6 +265,7 @@ function DocIcon() {
 function PlayIcon() {
   return (
     <svg
+      aria-hidden="true"
       width="12"
       height="12"
       viewBox="0 0 16 16"

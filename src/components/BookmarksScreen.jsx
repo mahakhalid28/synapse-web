@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
+import CategoryIcon from "./CategoryIcon";
 import { getBookmarks, removeBookmark } from "../storage";
-
-const CATEGORY_COLORS = {
-  equation: "#6B5F8C",
-  diagram:  "#8B6B4A",
-  chart:    "#8C5A47",
-  graph:    "#4A8C6B",
-};
 
 export default function BookmarksScreen({
   onNavigate     = () => {},
@@ -23,15 +17,17 @@ export default function BookmarksScreen({
   };
 
   return (
-    <div className="flex h-full w-full bg-paper overflow-hidden">
-      <Sidebar active="bookmarks" onNavigate={onNavigate} />
+    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+      <nav aria-label="Main navigation">
+        <Sidebar active="bookmarks" onNavigate={onNavigate} />
+      </nav>
 
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="max-w-[700px] px-12 py-12">
 
-          <div className="eyebrow mb-3">Bookmarks</div>
-          <h1 className="headline text-[32px] mb-2">Your saved explanations.</h1>
-          <p className="subtitle text-[15px] mb-10">
+          <div className="text-[14px] font-medium text-text-secondary mb-3">Bookmarks</div>
+          <h1 className="text-[32px] font-bold text-text-primary mb-2">Your saved explanations.</h1>
+          <p className="text-[15px] text-text-secondary mb-10">
             {bookmarks.length === 0
               ? "Nothing saved yet. Bookmark any explanation while reading it."
               : `${bookmarks.length} explanation${bookmarks.length === 1 ? "" : "s"} saved.`}
@@ -63,63 +59,51 @@ export default function BookmarksScreen({
 /* ── Bookmark card ───────────────────────────────────────────────────────── */
 
 function BookmarkCard({ bookmark, onOpen, onRemove }) {
-  const color = CATEGORY_COLORS[bookmark.category] || "#4A5B8C";
-  const date  = new Date(bookmark.savedAt).toLocaleDateString("en-US", {
+  const date = new Date(bookmark.savedAt).toLocaleDateString("en-US", {
     month: "short", day: "numeric", year: "numeric",
   });
 
   return (
-    <div className="flex items-start gap-4 p-5 bg-paper-soft border border-paper-edge rounded-editorial hover:border-[#C4BAA5] transition-colors">
-
-      {/* Color bar */}
-      <span
-        className="w-0.5 h-14 rounded-full shrink-0 mt-1"
-        style={{ backgroundColor: color }}
-      />
+    <div className="flex items-start gap-4 p-5 bg-surface border border-border-subtle rounded-radius-md hover:border-border-strong transition-colors">
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1.5">
-          <span
-            className="font-sans text-[13px] uppercase tracking-[0.14em]"
-            style={{ color }}
-          >
-            {bookmark.category}
+        <div className="flex items-center gap-1.5 mb-1.5 text-[14px]">
+          <CategoryIcon category={bookmark.category} className="text-text-muted" />
+          <span className="text-text-secondary">
+            {capitalize(bookmark.category)}
           </span>
-          <span className="text-paper-rule">·</span>
-          <span className="font-mono text-[13px] text-ink-ghost">
+          <span className="text-border-strong">·</span>
+          <span className="font-mono tabular-nums text-text-muted">
             {bookmark.timestamp}
           </span>
-          <span className="text-paper-rule">·</span>
-          <span className="font-sans text-[13px] text-ink-ghost truncate">
+          <span className="text-border-strong">·</span>
+          <span className="text-text-muted truncate">
             {bookmark.videoTitle}
           </span>
         </div>
 
-        <div className="font-serif text-[17px] text-ink leading-snug mb-1">
+        <div className="text-[17px] font-semibold text-text-primary leading-snug mb-1">
           {bookmark.title}
         </div>
 
         {bookmark.explanation?.subtitle && (
-          <div className="font-sans text-[14px] text-ink-faded leading-relaxed line-clamp-2">
+          <div className="text-[14px] text-text-secondary leading-relaxed line-clamp-2">
             {bookmark.explanation.subtitle}
           </div>
         )}
 
-        <div className="font-sans text-[13px] text-ink-ghost mt-2 uppercase tracking-[0.08em]">
+        <div className="text-[14px] text-text-muted mt-2">
           Saved {date} · {bookmark.mode} depth
         </div>
       </div>
 
       {/* Actions */}
       <div className="flex flex-col items-end gap-2 shrink-0">
-        <button onClick={onOpen} className="btn-primary text-[13px] px-4 py-2">
-          Open <span className="text-sm">→</span>
+        <button onClick={onOpen} className="ds-btn-secondary">
+          Open <span aria-hidden="true">→</span>
         </button>
-        <button
-          onClick={onRemove}
-          className="font-sans text-[13px] text-ink-ghost hover:text-ink transition-colors"
-        >
+        <button onClick={onRemove} className="ds-btn-text">
           Remove
         </button>
       </div>
@@ -132,12 +116,16 @@ function BookmarkCard({ bookmark, onOpen, onRemove }) {
 function EmptyState({ icon, message }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="w-12 h-12 rounded-full bg-paper-edge flex items-center justify-center mb-4">
-        <span className="text-ink-ghost text-lg">{icon}</span>
+      <div className="w-12 h-12 rounded-full bg-surface-muted flex items-center justify-center mb-4">
+        <span aria-hidden="true" className="text-text-muted text-lg">{icon}</span>
       </div>
-      <p className="font-sans text-[13px] text-ink-ghost max-w-[260px] leading-relaxed">
+      <p className="text-[14px] text-text-muted max-w-[260px] leading-relaxed">
         {message}
       </p>
     </div>
   );
+}
+
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
 }
