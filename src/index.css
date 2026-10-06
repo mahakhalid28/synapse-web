@@ -212,70 +212,108 @@
     background-color: rgb(var(--paper-soft));
   }
 
-  /* ── New STEM-workspace components (additive, "ds-" prefixed so they   ── */
-  /* ── never collide with the editorial component classes above)        ── */
+  /* ── Synapse shared primitives (additive, "ds-" prefixed so they never ── */
+  /* ── collide with the editorial component classes above)               ── */
+
+  /* Defined once, reused by every interactive primitive below (and, as
+     later phases migrate each screen, by their own interactive elements
+     too) instead of a repeated focus-visible:outline-* utility string per
+     component. The outline stays transparent in normal rendering — only
+     the box-shadow ring shows — but under forced-colors mode (Windows
+     High Contrast) the browser overrides outline-color regardless of what
+     we set here, so a visible ring survives even when box-shadow doesn't;
+     this is deliberate, not a leftover value. */
+  .focus-ring {
+    outline: 3px solid transparent;
+    outline-offset: 2px;
+  }
+  .focus-ring:focus-visible {
+    box-shadow: 0 0 0 2px rgb(var(--surface)), 0 0 0 5px rgb(var(--focus));
+  }
+
+  /* Primary — filled --accent, one per major view (see each screen's own
+     phase for where). text-on-accent flips to dark text automatically in
+     the night theme, per the design spec. */
   .ds-btn-primary {
-    @apply inline-flex items-center gap-2.5 px-6 py-3 bg-accent-primary text-white rounded-radius-md font-sans text-[14px] font-medium transition-colors;
+    @apply inline-flex items-center justify-center gap-2.5 px-6 py-3 min-h-[44px] bg-accent text-on-accent rounded-radius-md font-sans text-[14px] font-medium transition-colors focus-ring;
   }
   .ds-btn-primary:hover:not(:disabled) {
-    background-color: rgb(var(--accent-primary-hover));
+    background-color: rgb(var(--accent-hover));
   }
-  .ds-btn-primary:focus-visible {
-    outline: 2px solid rgb(var(--accent-primary));
-    outline-offset: 2px;
+  .ds-btn-primary:active:not(:disabled) {
+    background-color: rgb(var(--accent-pressed));
   }
 
+  /* Secondary — surface background, border-strong boundary (the
+     "anything interactive" tier, not the decorative border-subtle one). */
   .ds-btn-secondary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-surface border border-border-default rounded-radius-md font-sans text-[13px] font-medium text-text-primary transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-surface border border-border-strong rounded-radius-md font-sans text-[14px] font-medium text-text-primary transition-colors focus-ring;
   }
-  .ds-btn-secondary:hover {
-    @apply border-accent-primary;
-  }
-  .ds-btn-secondary:focus-visible {
-    outline: 2px solid rgb(var(--accent-primary));
-    outline-offset: 2px;
+  .ds-btn-secondary:hover:not(:disabled) {
+    @apply bg-surface-muted;
   }
 
+  /* Accent-outline — the one secondary variant the spec explicitly allows
+     an accent treatment for (e.g. Listen), so it reads as "the other
+     primary-adjacent action" without introducing a second filled button. */
+  .ds-btn-accent-outline {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-accent-soft border border-accent rounded-radius-md font-sans text-[14px] font-medium text-accent transition-colors focus-ring;
+  }
+  .ds-btn-accent-outline:hover:not(:disabled) {
+    @apply bg-surface;
+  }
+
+  /* Text — the quietest action pattern; underline on hover is the only
+     affordance besides the shared focus ring. Not held to the 44px
+     "important control" minimum (it's deliberately lightweight, often
+     several in a row), but py-1.5 keeps its actual tap target comfortably
+     past the WCAG 24px AA floor rather than hugging the text glyphs. */
   .ds-btn-text {
-    @apply inline-flex items-center gap-1 font-sans text-[13px] font-medium text-accent-primary transition-colors;
+    @apply inline-flex items-center gap-1 py-1.5 font-sans text-[14px] font-medium text-accent transition-colors rounded-radius-sm focus-ring;
   }
   .ds-btn-text:hover {
     text-decoration: underline;
   }
-  .ds-btn-text:focus-visible {
-    outline: 2px solid rgb(var(--accent-primary));
-    outline-offset: 2px;
-  }
 
+  /* Inputs — wrapper gets the full focus-ring treatment on focus-within so
+     it's visible even where the inner <input> itself suppresses its own
+     outline (each such input's own outline-none gets revisited as its
+     screen migrates, tracked per-phase). border-strong, not border-subtle:
+     an input is an interactive control, not a decorative divider. */
   .ds-field {
-    @apply flex items-center gap-3 px-4 py-3 bg-surface border border-border-default rounded-radius-md transition-colors;
+    @apply flex items-center gap-3 px-4 py-3 min-h-[44px] bg-surface border border-border-strong rounded-radius-md transition-colors;
   }
   .ds-field:focus-within {
-    @apply border-accent-primary;
+    @apply border-accent;
+    box-shadow: 0 0 0 2px rgb(var(--surface)), 0 0 0 5px rgb(var(--focus));
   }
 
+  /* Clickable card row — treated as interactive (border-strong), not a
+     static panel. */
   .ds-row {
-    @apply block w-full text-left px-5 py-4 bg-surface border border-border-default rounded-radius-md transition-colors;
+    @apply block w-full text-left px-5 py-4 bg-surface border border-border-strong rounded-radius-md transition-colors focus-ring;
   }
   .ds-row:hover {
-    @apply border-accent-primary;
-  }
-  .ds-row:focus-visible {
-    outline: 2px solid rgb(var(--accent-primary));
-    outline-offset: 2px;
+    @apply bg-surface-muted;
   }
 
   .ds-nav-item {
-    @apply flex items-center gap-2.5 px-3.5 py-2 rounded-radius-sm font-sans text-[13px] text-text-secondary transition-colors;
+    @apply flex items-center gap-2.5 px-3.5 py-2 min-h-[44px] rounded-radius-sm font-sans text-[14px] text-text-secondary transition-colors focus-ring;
   }
   .ds-nav-item:hover {
     @apply text-text-primary bg-surface-muted;
   }
-  .ds-nav-item:focus-visible {
-    outline: 2px solid rgb(var(--accent-primary));
-    outline-offset: 2px;
-  }
+  /* Active state is never color-only: accent text + accent-soft background
+     + font-semibold weight change together, on top of the left accent bar
+     and aria-current="page" already in Sidebar's own markup. */
   .ds-nav-item-active {
-    @apply text-text-primary bg-accent-subtle font-medium;
+    @apply text-accent bg-accent-soft font-semibold;
+  }
+
+  /* Neutral category/status chip (section 3) — color never carries the
+     category distinction; an icon + text label (supplied by the caller)
+     does. 4px radius matches --radius-sm exactly, not a coincidence. */
+  .ds-chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-muted border border-border-strong rounded-radius-sm font-sans text-[14px] font-medium text-text-primary;
   }
 }
