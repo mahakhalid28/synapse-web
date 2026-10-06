@@ -166,7 +166,17 @@ export default function Explanation({
   // piece of state/data-fetching/pauseOwner/timestamp-watching above is
   // identical in both modes; only how the video and its status are
   // displayed changes below.
-  const [presentationMode, setPresentationMode] = useState("accessibility");
+  // Persisted (same localStorage pattern as App.jsx's theme) so a user's
+  // choice survives opening a new lecture or returning from Timeline —
+  // without this, Explanation.jsx remounting fresh each time silently
+  // reset a blind user back to re-selecting Accessibility Mode every
+  // single visit. First-time visitors (no saved value yet) still default
+  // to Accessibility Mode as the safer non-visual-first starting point;
+  // this never guesses who the user is from the device/browser.
+  const [presentationMode, setPresentationMode] = useState(() => {
+    const saved = localStorage.getItem("synapse_presentation_mode");
+    return saved === "study" || saved === "accessibility" ? saved : "accessibility";
+  });
   // Scales only the main reading content (title, subtitle, Explanation
   // heading, paragraphs, key insight) — WCAG 1.4.4 text resize, session-only.
   const [textScale, setTextScale] = useState(1);
@@ -198,6 +208,10 @@ export default function Explanation({
   useEffect(() => {
     pauseOwnerRef.current = pauseOwner;
   }, [pauseOwner]);
+
+  useEffect(() => {
+    localStorage.setItem("synapse_presentation_mode", presentationMode);
+  }, [presentationMode]);
 
   // A new lecture — clear "has this point been heard" tracking. Navigating
   // between points within the same lecture must NOT hit this (only the
@@ -1157,9 +1171,10 @@ export default function Explanation({
                 against. Never aria-live — this is substantive content the
                 student reads at their own pace. Omitted entirely (not a
                 "not available" message) when this point has no structured
-                data, per the reading order spec. (Typography/token-only
-                change here in this pass — further accessibility-specific
-                treatment is Phase 5's.) */}
+                data, per the reading order spec. Carries the same
+                ProvenanceLabel as Study Mode's Structured View tab (added
+                Phase 5) since it's the identical underlying factual data —
+                "From the video", not a Synapse interpretation. */}
                 {presentationMode === "accessibility" && structuredRows && (
                   <div className="mb-7">
                     <h3
@@ -1171,6 +1186,7 @@ export default function Explanation({
                     >
                       Accessible visual information
                     </h3>
+                    <ProvenanceLabel kind="video" className="mb-3" />
                     <dl className="space-y-2 m-0">
                       {structuredRows.map((row) => (
                         <div
@@ -1320,7 +1336,7 @@ export default function Explanation({
                           ? "Pause explanation audio"
                           : "Listen to explanation audio"
                       }
-                      className="w-9 h-9 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
+                      className="w-11 h-11 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
                     >
                       {audioLoading ? (
                         <span aria-hidden="true" className="text-[8px]">
