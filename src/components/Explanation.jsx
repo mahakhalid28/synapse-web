@@ -13,6 +13,9 @@ import {
   saveToLibrary,
 } from "../storage";
 import { loadYouTubeIframeAPI } from "../lib/youtubeIframeApi";
+import MomentMarker from "./MomentMarker";
+import ProvenanceLabel from "./ProvenanceLabel";
+import CategoryIcon from "./CategoryIcon";
 
 // "0:15", "1:22", "1:04:10" -> seconds. Same shape as the timestamps
 // getInterventionPoints() already returns (see Timeline.jsx's own copy of
@@ -692,29 +695,29 @@ export default function Explanation({
               <div
                 role={processingError ? "alert" : "status"}
                 aria-live="polite"
-                className="mb-6 flex items-center gap-3 px-4 py-3 bg-surface border border-border-default rounded-radius-md"
+                className="mb-6 flex items-center gap-3 px-4 py-3 bg-surface border border-border-subtle rounded-radius-md"
               >
                 {processingError ? (
                   <>
-                    <span className="text-[13px] text-text-secondary flex-1">
+                    <span className="text-[14px] text-text-secondary flex-1">
                       {processingError}
                     </span>
                     <button
                       onClick={() => onNavigate("home")}
-                      className="text-[13px] text-accent-primary hover:text-text-primary underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 rounded-radius-sm"
+                      className="text-[14px] text-accent hover:text-text-primary underline underline-offset-2 focus-ring rounded-radius-sm"
                     >
                       Back to Home
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse shrink-0" />
-                    <span className="text-[13px] text-text-secondary flex-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+                    <span className="text-[14px] text-text-secondary flex-1">
                       Preparing your lecture… {processingProgress}%
                     </span>
                     <button
                       onClick={() => onNavigate("home")}
-                      className="text-[13px] text-text-secondary hover:text-text-primary underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 rounded-radius-sm"
+                      className="text-[14px] text-text-secondary hover:text-text-primary underline underline-offset-2 focus-ring rounded-radius-sm"
                     >
                       Cancel
                     </button>
@@ -725,19 +728,38 @@ export default function Explanation({
 
             {/* Header — focused on the current concept being explained, not
               lecture-level metadata (that lives in the Lecture Details
-              sidebar). Title first, then a single compact line identifying
+              sidebar). Title first, then the Moment header identifying
               this as a moment within the lecture, at its timestamp. */}
             <h1
-              className="font-serif font-medium text-text-primary leading-tight tracking-tight"
-              style={{ fontSize: `${34 * textScale}px` }}
+              className="font-bold text-text-primary leading-tight tracking-tight"
+              style={{ fontSize: `${32 * textScale}px` }}
             >
               {activePoint.title}
             </h1>
-            <div className="flex items-center justify-between gap-3 mt-1.5">
-              <div className="text-[13px] text-text-secondary">
-                Lecture moment ·{" "}
-                <span className="font-mono">{activePoint.timestamp}</span>
+
+            <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
+              {/* Moment header — the strongest attention element below the
+              title: which point in the lecture this is, at a glance.
+              Deliberately a separate, static element from the aria-live
+              status line further down (that announces play/pause state
+              changes) — this never changes that live region's content or
+              structure, just displays which moment is active. Shared by
+              both modes (Accessibility Mode wants the same marker/chip
+              treatment here too, per the design spec). */}
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-accent-soft border border-border-subtle rounded-radius-sm">
+                <MomentMarker className="text-accent" />
+                <span className="text-[14px] text-text-secondary">
+                  Lecture moment ·{" "}
+                  <span className="font-mono tabular-nums text-text-primary">
+                    {activePoint.timestamp}
+                  </span>
+                </span>
+                <span className="ds-chip">
+                  <CategoryIcon category={activePoint.category} />
+                  {capitalize(activePoint.category)}
+                </span>
               </div>
+
               {/* Text size + High contrast are visual presentation settings
               with no effect on what a screen reader announces — Accessibility
               Mode has no visual viewport to adjust, so these never render
@@ -755,7 +777,7 @@ export default function Explanation({
                         setTextScale((s) => Math.max(0.85, s - 0.15))
                       }
                       aria-label="Decrease text size"
-                      className="w-7 h-7 flex items-center justify-center rounded-radius-sm border border-border-default text-text-secondary text-[13px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                      className="w-7 h-7 flex items-center justify-center rounded-radius-sm border border-border-strong text-text-secondary text-[14px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring"
                     >
                       −
                     </button>
@@ -765,7 +787,7 @@ export default function Explanation({
                         setTextScale((s) => Math.min(1.6, s + 0.15))
                       }
                       aria-label="Increase text size"
-                      className="w-7 h-7 flex items-center justify-center rounded-radius-sm border border-border-default text-text-secondary text-[13px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                      className="w-7 h-7 flex items-center justify-center rounded-radius-sm border border-border-strong text-text-secondary text-[14px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring"
                     >
                       +
                     </button>
@@ -779,10 +801,10 @@ export default function Explanation({
                     onClick={() => setHighContrast((v) => !v)}
                     aria-pressed={highContrast}
                     className={
-                      "h-7 px-2.5 flex items-center justify-center rounded-radius-sm border text-[13px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+                      "h-7 px-2.5 flex items-center justify-center rounded-radius-sm border text-[14px] font-medium transition-colors focus-ring " +
                       (highContrast
-                        ? "bg-accent-subtle text-text-primary font-semibold border-accent-primary"
-                        : "border-border-default text-text-secondary hover:bg-surface-muted hover:text-text-primary")
+                        ? "bg-accent-soft text-text-primary font-semibold border-accent"
+                        : "border-border-strong text-text-secondary hover:bg-surface-muted hover:text-text-primary")
                     }
                   >
                     High contrast
@@ -790,6 +812,7 @@ export default function Explanation({
                 </div>
               )}
             </div>
+
             <p
               className={
                 "mt-3 mb-7 " +
@@ -804,20 +827,22 @@ export default function Explanation({
                   : "Your lecture is being prepared — the first explanation will appear here shortly."}
             </p>
 
-            {/* Presentation mode toggle */}
+            {/* Presentation mode toggle — a segmented control: selected
+            uses a filled accent + bold weight, unselected a plain
+            surface/border-strong boundary, per the design spec. */}
             <div
               role="group"
               aria-label="Presentation mode"
-              className="mb-6 inline-flex rounded-radius-md border border-border-default overflow-hidden"
+              className="mb-6 inline-flex rounded-radius-md border border-border-strong overflow-hidden"
             >
               <button
                 type="button"
                 aria-pressed={presentationMode === "accessibility"}
                 onClick={() => setPresentationMode("accessibility")}
                 className={
-                  "px-3.5 py-2 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+                  "px-3.5 py-2 text-[14px] transition-colors focus-ring " +
                   (presentationMode === "accessibility"
-                    ? "bg-accent-subtle text-text-primary font-semibold"
+                    ? "bg-accent text-on-accent font-semibold"
                     : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
                 }
               >
@@ -828,9 +853,9 @@ export default function Explanation({
                 aria-pressed={presentationMode === "study"}
                 onClick={() => setPresentationMode("study")}
                 className={
-                  "px-3.5 py-2 text-[13px] border-l border-border-default transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+                  "px-3.5 py-2 text-[14px] border-l border-border-strong transition-colors focus-ring " +
                   (presentationMode === "study"
-                    ? "bg-accent-subtle text-text-primary font-semibold"
+                    ? "bg-accent text-on-accent font-semibold"
                     : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
                 }
               >
@@ -851,7 +876,7 @@ export default function Explanation({
                 aria-label="Lecture video"
                 className={
                   presentationMode === "study"
-                    ? "aspect-video rounded-radius-md overflow-hidden relative bg-surface-muted border border-border-default"
+                    ? "aspect-video rounded-radius-md overflow-hidden relative bg-surface-muted border border-border-subtle"
                     : "sr-only"
                 }
               >
@@ -874,7 +899,7 @@ export default function Explanation({
                   <div ref={playerContainerRef} className="w-full h-full" />
                 </div>
                 {presentationMode === "study" && !playerReady && (
-                  <div className="absolute inset-0 flex items-center justify-center text-[13px] text-text-muted pointer-events-none">
+                  <div className="absolute inset-0 flex items-center justify-center text-[14px] text-text-muted pointer-events-none">
                     Loading video…
                   </div>
                 )}
@@ -888,7 +913,7 @@ export default function Explanation({
               <div
                 role="status"
                 aria-live="polite"
-                className="mt-3 text-[13px] text-text-secondary"
+                className="mt-3 text-[14px] text-text-secondary"
               >
                 {presentationMode === "accessibility"
                   ? pauseOwner === "intervention"
@@ -919,9 +944,11 @@ export default function Explanation({
                 Listen/Pause and Resume video belong together). */}
               {presentationMode === "accessibility" && pauseOwner && (
                 <div className="mt-3">
+                  {/* The one primary (filled-accent) action in Accessibility
+                  Mode, same role as Resume video in Study Mode. */}
                   <button
                     onClick={handleResumeVideo}
-                    className="ds-btn-secondary"
+                    className="ds-btn-primary"
                   >
                     <span aria-hidden="true">▶</span>{" "}
                     {/* This is the only way to resume playback in
@@ -952,7 +979,7 @@ export default function Explanation({
                 <div
                   role="tablist"
                   aria-label="Visual content view"
-                  className="mb-6 inline-flex rounded-radius-md border border-border-default overflow-hidden"
+                  className="mb-6 inline-flex rounded-radius-md border border-border-strong overflow-hidden"
                 >
                   <button
                     type="button"
@@ -965,9 +992,9 @@ export default function Explanation({
                     onClick={() => setVisualTab("visual")}
                     onKeyDown={handleVisualTabKeyDown}
                     className={
-                      "px-3.5 py-2 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+                      "px-3.5 py-2 text-[14px] transition-colors focus-ring " +
                       (effectiveVisualTab === "visual"
-                        ? "bg-accent-subtle text-text-primary font-semibold"
+                        ? "bg-accent text-on-accent font-semibold"
                         : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
                     }
                   >
@@ -987,9 +1014,9 @@ export default function Explanation({
                       onClick={() => setVisualTab("structured")}
                       onKeyDown={handleVisualTabKeyDown}
                       className={
-                        "px-3.5 py-2 text-[13px] border-l border-border-default transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+                        "px-3.5 py-2 text-[14px] border-l border-border-strong transition-colors focus-ring " +
                         (effectiveVisualTab === "structured"
-                          ? "bg-accent-subtle text-text-primary font-semibold"
+                          ? "bg-accent text-on-accent font-semibold"
                           : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
                       }
                     >
@@ -1012,7 +1039,12 @@ export default function Explanation({
                         type="button"
                         onClick={handleToggleFocus}
                         aria-pressed={focusActive}
-                        className="h-7 px-2.5 inline-flex items-center justify-center rounded-radius-sm border border-border-default text-text-secondary text-[13px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                        className={
+                          "h-7 px-2.5 inline-flex items-center justify-center rounded-radius-sm border text-[14px] font-medium transition-colors focus-ring " +
+                          (focusActive
+                            ? "bg-accent-soft border-accent text-text-primary font-semibold"
+                            : "border-border-strong text-text-secondary hover:bg-surface-muted hover:text-text-primary")
+                        }
                       >
                         {focusActive
                           ? "Showing focused view — click to see full frame"
@@ -1034,9 +1066,10 @@ export default function Explanation({
                       "mb-9 rounded-radius-lg p-6 " +
                       (highContrast
                         ? "bg-white border-2 border-black"
-                        : "bg-surface border border-border-default")
+                        : "bg-surface border border-border-subtle")
                     }
                   >
+                    <ProvenanceLabel kind="video" className="mb-4" />
                     <dl className="space-y-3 m-0">
                       {structuredRows.map((row) => (
                         <div
@@ -1077,29 +1110,37 @@ export default function Explanation({
                 "rounded-radius-lg p-7 md:p-10 " +
                 (highContrast
                   ? "bg-white border-2 border-black"
-                  : "bg-surface border border-border-default")
+                  : "bg-surface border border-border-subtle")
               }
             >
               <section aria-labelledby="explanation-heading">
                 <h2
                   id="explanation-heading"
                   className={
-                    "font-serif font-medium mb-4 " +
+                    "font-semibold mb-4 " +
                     (highContrast ? "text-black" : "text-text-primary")
                   }
-                  style={{ fontSize: `${22 * textScale}px` }}
+                  style={{ fontSize: `${24 * textScale}px` }}
                 >
                   Explanation
                 </h2>
 
+                {/* Structured View's rows are factual, detected from the
+                video; this prose is Synapse's own interpretation of what
+                they mean — the two are genuinely different kinds of
+                content, not a styling choice, so the label is accurate
+                here (unlike Key Insight below, which is part of this same
+                interpretive content, not a separately-sourced claim). */}
+                <ProvenanceLabel kind="interpretation" className="mb-4" />
+
                 <div
                   className={
-                    "leading-[1.6] " +
+                    "leading-[1.65] " +
                     (highContrast
                       ? "text-black font-medium"
                       : "text-text-primary")
                   }
-                  style={{ fontSize: `${16 * textScale}px` }}
+                  style={{ fontSize: `${18 * textScale}px` }}
                 >
                   {explanation?.paragraphs?.map((para, i) => (
                     <p key={i} className="mb-[18px]">
@@ -1116,15 +1157,17 @@ export default function Explanation({
                 against. Never aria-live — this is substantive content the
                 student reads at their own pace. Omitted entirely (not a
                 "not available" message) when this point has no structured
-                data, per the reading order spec. */}
+                data, per the reading order spec. (Typography/token-only
+                change here in this pass — further accessibility-specific
+                treatment is Phase 5's.) */}
                 {presentationMode === "accessibility" && structuredRows && (
                   <div className="mb-7">
                     <h3
                       className={
-                        "font-serif font-medium mb-3 " +
+                        "font-semibold mb-3 " +
                         (highContrast ? "text-black" : "text-text-primary")
                       }
-                      style={{ fontSize: `${17 * textScale}px` }}
+                      style={{ fontSize: `${18 * textScale}px` }}
                     >
                       Accessible visual information
                     </h3>
@@ -1159,16 +1202,16 @@ export default function Explanation({
 
                 {/* Key insight pull quote */}
                 {explanation?.keyInsight && (
-                  <blockquote className="my-7 pl-6 py-1 border-l-2 border-accent-primary text-text-secondary">
+                  <blockquote className="my-7 pl-6 py-1 border-l-2 border-accent text-text-secondary">
                     <p
                       className={
-                        "m-0 leading-[1.6] " + (highContrast ? "text-black" : "")
+                        "m-0 leading-[1.65] " + (highContrast ? "text-black" : "")
                       }
-                      style={{ fontSize: `${16 * textScale}px` }}
+                      style={{ fontSize: `${18 * textScale}px` }}
                     >
                       {explanation.keyInsight}
                     </p>
-                    <p className="text-[13px] text-text-muted mt-2.5">
+                    <p className="text-[14px] text-text-muted mt-2.5">
                       Key insight
                     </p>
                   </blockquote>
@@ -1178,7 +1221,7 @@ export default function Explanation({
                 intervention point, not a general lecture chatbot. Collapsed
                 by default; backend endpoint doesn't exist yet (see
                 mockAskAboutVisual at the top of this file). */}
-                <div className="mt-7 pt-5 border-t border-border-default">
+                <div className="mt-7 pt-5 border-t border-border-subtle">
                   <button
                     type="button"
                     onClick={() => setAskOpen((v) => !v)}
@@ -1199,7 +1242,7 @@ export default function Explanation({
                             type="button"
                             onClick={() => handleAsk(qa.query)}
                             disabled={askLoading}
-                            className="px-3 py-1.5 rounded-full border border-border-default text-[13px] text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                            className="px-3 py-1.5 rounded-radius-sm border border-border-strong text-[14px] text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
                           >
                             {qa.label}
                           </button>
@@ -1216,7 +1259,7 @@ export default function Explanation({
                           }}
                           placeholder={`Ask your own question about this ${askNoun}…`}
                           aria-label={`Your question about this ${askNoun}`}
-                          className="flex-1 min-w-0 px-3 py-2 text-[13px] bg-surface border border-border-default rounded-radius-sm text-text-primary placeholder:text-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                          className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-[16px] bg-surface border border-border-strong rounded-radius-sm text-text-primary placeholder:text-text-muted focus-ring"
                         />
                         <button
                           type="button"
@@ -1229,7 +1272,7 @@ export default function Explanation({
                       </div>
 
                       {askLoading && (
-                        <p className="mt-3 text-[13px] text-text-muted">
+                        <p className="mt-3 text-[14px] text-text-muted">
                           Thinking…
                         </p>
                       )}
@@ -1238,12 +1281,12 @@ export default function Explanation({
                       content the student reads at their own pace, not a
                       short status transition, so it must NOT be aria-live. */}
                       {askAnswer && !askLoading && (
-                        <div className="mt-3 p-3 bg-surface-muted rounded-radius-md text-[13px] text-text-primary leading-[1.6]">
+                        <div className="mt-3 p-3 bg-surface-muted rounded-radius-md text-[14px] text-text-primary leading-[1.6]">
                           {askAnswer}
                         </div>
                       )}
 
-                      <p className="mt-3 text-[12px] text-text-muted">
+                      <p className="mt-3 text-[14px] text-text-muted">
                         Scoped to this {askNoun} only — not a general lecture
                         chatbot.
                       </p>
@@ -1277,7 +1320,7 @@ export default function Explanation({
                           ? "Pause explanation audio"
                           : "Listen to explanation audio"
                       }
-                      className="w-9 h-9 rounded-full bg-accent-primary text-white flex items-center justify-center shrink-0 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                      className="w-9 h-9 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
                     >
                       {audioLoading ? (
                         <span aria-hidden="true" className="text-[8px]">
@@ -1292,9 +1335,9 @@ export default function Explanation({
 
                     <div className="flex-1 min-w-[160px]">
                       {/* Progress track */}
-                      <div className="h-0.5 bg-border-default rounded-full relative">
+                      <div className="h-0.5 bg-border-subtle rounded-full relative">
                         <div
-                          className="h-full bg-accent-primary rounded-full transition-all duration-100"
+                          className="h-full bg-accent rounded-full transition-all duration-100"
                           style={{
                             width:
                               audioDuration > 0
@@ -1304,7 +1347,7 @@ export default function Explanation({
                         />
                         {audioDuration > 0 && (
                           <div
-                            className="absolute top-1/2 w-2.5 h-2.5 bg-accent-primary rounded-full transition-all duration-100"
+                            className="absolute top-1/2 w-2.5 h-2.5 bg-accent rounded-full transition-all duration-100"
                             style={{
                               left: `${(currentTime / audioDuration) * 100}%`,
                               transform: "translate(-50%, -50%)",
@@ -1314,12 +1357,12 @@ export default function Explanation({
                       </div>
 
                       {/* Time row */}
-                      <div className="flex justify-between mt-2 font-mono text-[13px] text-text-muted">
-                        <span>{formatTime(currentTime)}</span>
+                      <div className="flex justify-between mt-2 font-mono text-[14px] text-text-muted">
+                        <span className="tabular-nums">{formatTime(currentTime)}</span>
                         <span className="font-sans text-text-secondary">
                           {audioLoading ? "Loading audio…" : audioLabel}
                         </span>
-                        <span>
+                        <span className="tabular-nums">
                           {audioDuration > 0
                             ? formatTime(audioDuration)
                             : "--:--"}
@@ -1328,11 +1371,14 @@ export default function Explanation({
                     </div>
                   </div>
 
+                  {/* The one primary (filled-accent) action in this
+                  cluster, per the design spec: Resume video = primary,
+                  Listen = secondary/accent-outline above. */}
                   {presentationMode === "study" &&
                     pauseOwner === "intervention" && (
                       <button
                         onClick={handleResumeVideo}
-                        className="ds-btn-secondary shrink-0"
+                        className="ds-btn-primary shrink-0"
                       >
                         <span aria-hidden="true">▶</span> Resume video
                       </button>
@@ -1371,13 +1417,13 @@ export default function Explanation({
               </div>
 
               {/* Prev/next navigation */}
-              <div className="flex justify-between mt-9 pt-6 border-t border-border-default text-[13px]">
+              <div className="flex justify-between mt-9 pt-6 border-t border-border-subtle text-[14px]">
                 {prevPoint ? (
                   <button
                     onClick={() => selectPointManually(prevPoint.id)}
-                    className="text-left text-text-secondary hover:text-text-primary transition-colors rounded-radius-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                    className="text-left text-text-secondary hover:text-text-primary transition-colors rounded-radius-sm focus-ring"
                   >
-                    <div className="text-[13px] text-text-muted mb-1">
+                    <div className="text-[14px] text-text-muted mb-1">
                       ← Previous
                     </div>
                     <div className="text-[14px] text-text-primary">
@@ -1391,9 +1437,9 @@ export default function Explanation({
                 {nextPoint && (
                   <button
                     onClick={() => selectPointManually(nextPoint.id)}
-                    className="text-right text-text-secondary hover:text-text-primary transition-colors rounded-radius-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                    className="text-right text-text-secondary hover:text-text-primary transition-colors rounded-radius-sm focus-ring"
                   >
-                    <div className="text-[13px] text-text-muted mb-1">
+                    <div className="text-[14px] text-text-muted mb-1">
                       Next →
                     </div>
                     <div className="text-[14px] text-text-primary">
@@ -1414,7 +1460,7 @@ export default function Explanation({
         {presentationMode === "study" && (
           <aside
             aria-label="Lecture details"
-            className="w-[300px] bg-background border-l border-border-default p-5 overflow-y-auto shrink-0"
+            className="w-[300px] bg-background border-l border-border-subtle p-5 overflow-y-auto shrink-0"
           >
             {/* Only real entry point into Timeline — carries the current
             point along via onOpenTimeline so Timeline opens with it already
@@ -1434,10 +1480,10 @@ export default function Explanation({
             {/* One continuous card — Lecture Details and Intervention Points
                 are sections within it, separated by a divider rather than
                 living in two separate boxes. */}
-            <div className="bg-surface border border-border-default rounded-radius-md">
+            <div className="bg-surface border border-border-subtle rounded-radius-md">
               {/* Lecture Details section */}
               <div className="p-4">
-                <h2 className="text-[15px] font-bold text-text-secondary mb-2">
+                <h2 className="text-[15px] font-semibold text-text-secondary mb-2">
                   Lecture Details
                 </h2>
                 <div className="flex gap-3">
@@ -1456,14 +1502,14 @@ export default function Explanation({
                       </div>
                     )}
                     {videoAuthor && (
-                      <div className="text-[13px] text-text-secondary">
+                      <div className="text-[14px] text-text-secondary">
                         {videoAuthor}
                       </div>
                     )}
                   </div>
                 </div>
                 {videoDuration && (
-                  <div className="flex items-center gap-1.5 mt-3 text-[13px] text-text-secondary">
+                  <div className="flex items-center gap-1.5 mt-3 text-[14px] text-text-secondary">
                     <ClockIcon />
                     {videoDuration}
                   </div>
@@ -1471,15 +1517,15 @@ export default function Explanation({
               </div>
 
               {/* Intervention Points section — connected vertical stepper */}
-              <div className="p-4 border-t border-border-default">
-                <h3 className="text-[15px] font-bold text-text-secondary mb-3">
+              <div className="p-4 border-t border-border-subtle">
+                <h3 className="text-[15px] font-semibold text-text-secondary mb-3">
                   Intervention Points
                 </h3>
                 <div className="relative">
                   {/* Connecting line running behind every dot */}
                   <div
                     aria-hidden="true"
-                    className="absolute left-[12px] top-2 bottom-2 w-px bg-border-default"
+                    className="absolute left-[12px] top-2 bottom-2 w-px bg-border-subtle"
                   />
                   <div>
                     {sortedPoints.map((point) => {
@@ -1489,27 +1535,27 @@ export default function Explanation({
                           key={point.id}
                           onClick={() => selectPointManually(point.id)}
                           aria-current={isActive ? "step" : undefined}
-                          className="relative z-10 flex items-start gap-3 w-full text-left px-1 py-2.5 rounded-radius-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 hover:bg-surface-muted"
+                          className="relative z-10 flex items-start gap-3 w-full text-left px-1 py-2.5 rounded-radius-sm transition-colors focus-ring hover:bg-surface-muted"
                         >
                           <span
                             aria-hidden="true"
                             className={
                               "mt-1 w-4 h-4 shrink-0 rounded-full border-2 " +
                               (isActive
-                                ? "bg-accent-primary border-accent-primary"
-                                : "bg-surface border-border-default")
+                                ? "bg-accent border-accent"
+                                : "bg-surface border-border-strong")
                             }
                           />
                           <div className="min-w-0 flex-1">
                             <div
                               className={
-                                "font-mono text-[13px] " +
+                                "font-mono tabular-nums text-[14px] " +
                                 (isActive ? "text-text-primary" : "text-text-muted")
                               }
                             >
                               {point.timestamp}
                             </div>
-                            <div className="flex items-baseline gap-1 text-[13px]">
+                            <div className="flex items-baseline gap-1 text-[14px]">
                               <span
                                 className={
                                   "flex-1 min-w-0 truncate " +
@@ -1570,6 +1616,11 @@ function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// For the Moment header's category chip — categories are stored lowercase.
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
 }
 
 /**

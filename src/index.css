@@ -166,6 +166,19 @@
   h1, h2, h3 {
     font-feature-settings: "kern" 1, "liga" 1, "onum" 1, "dlig" 1;
   }
+
+  /* Design-system spec: respect prefers-reduced-motion, limit any motion
+     to color/outline transitions — covers Tailwind's animate-pulse (the
+     "preparing your lecture" progress dot) and animate-spin, the only two
+     animation utilities used anywhere in the app today. The short color
+     transitions on buttons/links (transition-colors etc.) aren't motion in
+     the vestibular sense and are left as-is. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pulse,
+    .animate-spin {
+      animation: none;
+    }
+  }
 }
 
 /* ── Components ──────────────────────────────────────────────────────────── */
