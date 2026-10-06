@@ -86,7 +86,7 @@ export default function Home({
             id="page-title"
             ref={h1Ref}
             tabIndex={-1}
-            className="text-[32px] font-semibold text-text-primary leading-tight mb-4 outline-none rounded-radius-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+            className="text-[32px] font-semibold text-text-primary leading-tight mb-4 outline-none rounded-radius-sm focus-ring"
           >
             Start a study session
           </h1>
@@ -96,7 +96,7 @@ export default function Home({
               type="button"
               onClick={resumeContinueLecture}
               aria-label={`Continue: ${continueLecture.title}, ${continueLecture.conceptsExplored} of ${continueLecture.totalConcepts} concepts explored`}
-              className="mb-8 block w-full text-left px-3.5 py-2.5 bg-surface-muted border border-border-default/70 rounded-radius-md hover:border-accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 outline-none transition-colors"
+              className="mb-8 block w-full text-left px-3.5 py-2.5 bg-surface-muted border border-border-strong/70 rounded-radius-md hover:border-accent outline-none transition-colors focus-ring"
             >
               <span aria-hidden="true" className="block text-[13px] text-text-muted mb-1">
                 Continue learning
@@ -105,9 +105,9 @@ export default function Home({
                 {continueLecture.title}
               </span>
               <span aria-hidden="true" className="mt-2 flex items-center gap-2">
-                <span className="h-1 w-20 rounded-full bg-border-default overflow-hidden shrink-0">
+                <span className="h-1 w-20 rounded-full bg-border-subtle overflow-hidden shrink-0">
                   <span
-                    className="block h-full rounded-full bg-accent-primary"
+                    className="block h-full rounded-full bg-accent"
                     style={{ width: `${continuePct}%` }}
                   />
                 </span>
@@ -140,7 +140,7 @@ export default function Home({
                   spellCheck={false}
                 />
                 {isValidUrl && (
-                  <span className="text-[13px] font-medium text-accent-primary shrink-0">
+                  <span className="text-[13px] font-medium text-accent shrink-0">
                     YouTube lecture detected
                   </span>
                 )}

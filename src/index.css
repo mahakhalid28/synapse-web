@@ -72,14 +72,15 @@
 }
 
 /* ── Synapse design tokens (semantic, centralized) ────────────────────────── */
-/* Added alongside paper/ink, not replacing them — unmigrated screens        */
-/* (Library, Bookmarks) still read the paper/ink variables above untouched   */
-/* until their own migration phase. A handful of old Tailwind color keys     */
-/* (accent-primary, accent-subtle, border-default — see tailwind.config.js)  */
-/* are TEMPORARY aliases onto these same variables so every screen already   */
-/* using them picks up the new values for free, without an immediate JSX     */
-/* edit. Grep for those three names once migration finishes and delete both  */
-/* the aliases and this comment.                                            */
+/* Added alongside paper/ink, not replacing them. Every screen (Home,        */
+/* Sidebar, Navbar, Explanation, Timeline, Bookmarks, Library) is now        */
+/* migrated onto these tokens as of the design-system refactor's Phase 6;    */
+/* the temporary accent-primary/accent-subtle/border-default Tailwind alias  */
+/* keys that bridged the migration have been removed (Phase 7). The old      */
+/* paper/ink variables below and their old component classes (.eyebrow,     */
+/* .headline, .btn-primary, etc. in @layer components) are confirmed fully   */
+/* unused in JSX as of Phase 7 but are deliberately left in place, per       */
+/* CLAUDE.md's explicit instruction not to delete or repurpose them.         */
 /* All values are space-separated RGB triplets (no rgb() wrapper), matching  */
 /* the paper/ink convention above, verified against WCAG 4.5:1 (text) / 3:1  */
 /* (UI boundaries, focus) before being committed here.                      */

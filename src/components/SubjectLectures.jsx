@@ -64,7 +64,7 @@ export default function SubjectLectures({
             id="subject-page-title"
             ref={h1Ref}
             tabIndex={-1}
-            className="text-[32px] font-semibold text-text-primary leading-tight mb-10 outline-none rounded-radius-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+            className="text-[32px] font-semibold text-text-primary leading-tight mb-10 outline-none rounded-radius-sm focus-ring"
           >
             {subject} lectures
           </h1>
@@ -85,7 +85,7 @@ export default function SubjectLectures({
                 spellCheck={false}
               />
               {isValidUrl && (
-                <span className="text-[13px] font-medium text-accent-primary shrink-0">
+                <span className="text-[13px] font-medium text-accent shrink-0">
                   YouTube lecture detected
                 </span>
               )}

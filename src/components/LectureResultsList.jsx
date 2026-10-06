@@ -21,7 +21,7 @@ export default function LectureResultsList({
         id="results-heading"
         ref={headingRef}
         tabIndex={-1}
-        className="text-[15px] font-semibold text-text-primary mb-3 rounded-radius-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+        className="text-[15px] font-semibold text-text-primary mb-3 rounded-radius-sm outline-none focus-ring"
       >
         {heading}
       </HeadingTag>
@@ -41,7 +41,7 @@ export default function LectureResultsList({
                 {r.channel} · {r.duration}
               </span>
               {showAction && (
-                <span aria-hidden="true" className="inline-flex items-center gap-1 text-[13px] font-medium text-accent-primary mt-2">
+                <span aria-hidden="true" className="inline-flex items-center gap-1 text-[13px] font-medium text-accent mt-2">
                   Start learning <span aria-hidden="true">→</span>
                 </span>
               )}
