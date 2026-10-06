@@ -38,7 +38,7 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
   }, [open]);
 
   return (
-    <header className="h-10 shrink-0 bg-surface border-b border-border-default flex items-center px-4 relative z-40 font-sans">
+    <header className="h-14 shrink-0 bg-surface border-b border-border-subtle flex items-center px-4 relative z-40 font-sans">
       {/* Right side: gear button + panel */}
       <div ref={panelRef} className="ml-auto relative">
         <button
@@ -46,9 +46,9 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
           aria-label="Settings"
           aria-expanded={open}
           className={
-            "w-7 h-7 flex items-center justify-center rounded-radius-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+            "w-11 h-11 flex items-center justify-center rounded-radius-sm transition-colors focus-ring " +
             (open
-              ? "bg-accent-subtle text-accent-primary"
+              ? "bg-accent-soft text-accent"
               : "text-text-secondary hover:text-text-primary hover:bg-surface-muted")
           }
         >
@@ -56,10 +56,10 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
         </button>
 
         {open && (
-          <div className="absolute top-full right-0 mt-1.5 w-[220px] bg-surface border border-border-default rounded-radius-md shadow-[0_2px_8px_rgba(15,23,42,0.08)] overflow-hidden">
+          <div className="absolute top-full right-0 mt-1.5 w-[220px] bg-surface border border-border-subtle rounded-radius-md shadow-[0_2px_8px_rgba(15,23,42,0.08)] overflow-hidden">
             {/* Panel header */}
-            <div className="px-4 pt-3 pb-2 border-b border-border-default">
-              <p className="text-[13px] font-medium text-text-secondary">
+            <div className="px-4 pt-3 pb-2 border-b border-border-subtle">
+              <p className="text-[14px] font-medium text-text-secondary">
                 Appearance
               </p>
             </div>
@@ -72,15 +72,20 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
                   <button
                     key={t.key}
                     onClick={() => { onThemeChange(t.key); setOpen(false); }}
+                    aria-pressed={active}
                     className={
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-radius-sm text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2 " +
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-radius-sm text-left transition-colors focus-ring " +
                       (active
-                        ? "bg-accent-subtle"
+                        ? "bg-accent-soft"
                         : "hover:bg-surface-muted")
                     }
                   >
-                    {/* Color swatch strip */}
-                    <span className="flex shrink-0 rounded-radius-sm overflow-hidden w-8 h-5 border border-border-default">
+                    {/* Color swatch strip — these three colors are the
+                    actual theme's own palette being previewed, not
+                    decorative chrome, so they stay literal hex rather than
+                    semantic tokens (there's nothing to tokenize: showing
+                    what each theme looks like is the whole point). */}
+                    <span className="flex shrink-0 rounded-radius-sm overflow-hidden w-8 h-5 border border-border-subtle">
                       {t.swatch.map((c, i) => (
                         <span
                           key={i}
@@ -92,17 +97,17 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
 
                     {/* Labels */}
                     <span className="flex-1 min-w-0">
-                      <span className="block text-[13px] font-medium text-text-primary leading-none mb-0.5">
+                      <span className="block text-[14px] font-medium text-text-primary leading-none mb-0.5">
                         {t.label}
                       </span>
-                      <span className="block text-[13px] text-text-secondary">
+                      <span className="block text-[14px] text-text-secondary">
                         {t.desc}
                       </span>
                     </span>
 
                     {/* Active checkmark */}
                     {active && (
-                      <span className="text-[13px] font-medium text-accent-primary shrink-0">✓</span>
+                      <span aria-hidden="true" className="text-[14px] font-medium text-accent shrink-0">✓</span>
                     )}
                   </button>
                 );
@@ -110,8 +115,8 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
             </div>
 
             {/* Footer hint */}
-            <div className="px-4 py-2.5 border-t border-border-default">
-              <p className="text-[13px] text-text-muted leading-snug">
+            <div className="px-4 py-2.5 border-t border-border-subtle">
+              <p className="text-[14px] text-text-muted leading-snug">
                 More settings coming soon.
               </p>
             </div>
@@ -124,7 +129,7 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
 
 function GearIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="10" cy="10" r="3" />
       <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" />
     </svg>
