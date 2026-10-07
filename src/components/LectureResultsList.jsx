@@ -16,7 +16,7 @@ export default function LectureResultsList({
   const HeadingTag = headingLevel;
 
   return (
-    <section aria-labelledby="results-heading" className="mb-6">
+    <div className="mb-6">
       <HeadingTag
         id="results-heading"
         ref={headingRef}
@@ -49,6 +49,6 @@ export default function LectureResultsList({
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }

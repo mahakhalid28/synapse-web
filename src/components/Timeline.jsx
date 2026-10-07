@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
 import MomentMarker from "./MomentMarker";
@@ -24,6 +24,18 @@ export default function Timeline({
   const [data,           setData]           = useState(null);
   const [selectedId,     setSelectedId]     = useState(pointId);
   const [activeCategory, setActiveCategory] = useState("all");
+  const h1Ref = useRef(null);
+  const focusedOnLoadRef = useRef(false);
+  const [selectionMessage, setSelectionMessage] = useState("");
+
+  // The h1 only exists once data has loaded; move focus to it exactly once so
+  // arriving at the timeline is announced (see App.jsx's screen-change focus).
+  useEffect(() => {
+    if (data && !focusedOnLoadRef.current) {
+      focusedOnLoadRef.current = true;
+      h1Ref.current?.focus({ preventScroll: true });
+    }
+  }, [data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +135,7 @@ export default function Timeline({
               {thumbnailUrl && (
                 <img
                   src={thumbnailUrl}
-                  alt="thumbnail"
+                  alt=""
                   className="w-full h-full object-cover"
                   onError={(e) => (e.currentTarget.style.display = "none")}
                 />
@@ -140,7 +152,11 @@ export default function Timeline({
 
             {/* Title + meta + stats */}
             <div className="flex-1 min-w-0">
-              <h1 className="text-[22px] font-semibold text-text-primary leading-snug mb-1 truncate">
+              <h1
+                ref={h1Ref}
+                tabIndex={-1}
+                className="text-[22px] font-semibold text-text-primary leading-snug mb-1 truncate outline-none"
+              >
                 {data.videoTitle}
               </h1>
               <div className="text-[14px] text-text-muted mb-5">
@@ -151,14 +167,16 @@ export default function Timeline({
               category; "All" has no icon since it isn't a category. */}
               <div className="flex flex-wrap gap-2">
                 <span className="ds-chip">
-                  <span className="text-text-secondary">{counts.all}</span>
+                  <span className="text-text-secondary">{counts.all}<span className="sr-only"> </span></span>
                   <span className="text-text-muted">All</span>
+                  <span className="sr-only">,</span>
                 </span>
                 {categories.map((cat) => (
                   <span key={cat} className="ds-chip">
                     <CategoryIcon category={cat} className="text-text-muted" />
-                    <span className="text-text-secondary">{counts[cat]}</span>
+                    <span className="text-text-secondary">{counts[cat]}<span className="sr-only"> </span></span>
                     <span className="text-text-muted">{capitalize(cat)}</span>
+                    <span className="sr-only">,</span>
                   </span>
                 ))}
               </div>
@@ -169,8 +187,16 @@ export default function Timeline({
           <div className="mb-6">
             <div className="text-[14px] font-medium text-text-secondary mb-4">
               Intervention timeline
+              <span className="sr-only">
+                {" "}
+                — a visual chart of the moments below; use the list for the same
+                information.
+              </span>
             </div>
-            <div className="bg-surface border border-border-subtle rounded-radius-md p-6 pb-4">
+            <div
+              aria-hidden="true"
+              className="bg-surface border border-border-subtle rounded-radius-md p-6 pb-4"
+            >
               <LaneTimeline
                 totalSeconds={totalSeconds}
                 categories={categories}
@@ -217,6 +243,10 @@ export default function Timeline({
             })}
           </div>
 
+          <div role="status" aria-live="polite" className="sr-only">
+            {selectionMessage}
+          </div>
+
           {/* ── Point list — vertical ── */}
           <div className="space-y-1.5">
             {visiblePoints.map((point) => (
@@ -224,7 +254,12 @@ export default function Timeline({
                 key={point.id}
                 point={point}
                 isSelected={point.id === selectedId}
-                onClick={() => setSelectedId(point.id)}
+                onClick={() => {
+                  setSelectedId(point.id);
+                  setSelectionMessage(
+                    `Selected ${point.title}, ${point.category}, at ${point.timestamp}. Preview updated.`,
+                  );
+                }}
               />
             ))}
           </div>
@@ -288,7 +323,7 @@ function PreviewPanel({ point, thumbnailUrl, onOpen }) {
         {thumbnailUrl && (
           <img
             src={thumbnailUrl}
-            alt="frame"
+            alt=""
             className="w-full h-full object-cover"
             onError={(e) => (e.currentTarget.style.display = "none")}
           />
@@ -310,10 +345,11 @@ function PreviewPanel({ point, thumbnailUrl, onOpen }) {
       {/* CTA */}
       <button
         onClick={onOpen}
+        aria-label={`Open explanation: ${point.title}`}
         className="ds-btn-primary w-full justify-center"
       >
         Open explanation
-        <span className="text-sm">→</span>
+        <span aria-hidden="true" className="text-sm">→</span>
       </button>
     </div>
   );
@@ -325,6 +361,8 @@ function PointRow({ point, isSelected, onClick }) {
   return (
     <button
       onClick={onClick}
+      aria-current={isSelected ? "true" : undefined}
+      aria-label={`${point.title}, ${point.category}, at ${point.timestamp}`}
       className={
         "w-full flex items-center gap-4 px-4 py-3 rounded-radius-md text-left transition-colors border focus-ring " +
         (isSelected

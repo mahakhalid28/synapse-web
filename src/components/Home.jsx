@@ -62,6 +62,9 @@ export default function Home({
     setUrl(`https://youtube.com/watch?v=${video.videoId}`);
     setResults([]);
     setStatusMessage(`Selected ${video.title}. The Start learning button is ready.`);
+    // The result button that had focus is unmounting with the list — return
+    // focus to the field (press Enter or Tab to Start learning from here).
+    inputRef.current?.focus();
   };
 
   return (

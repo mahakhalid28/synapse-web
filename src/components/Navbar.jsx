@@ -24,6 +24,8 @@ const THEMES = [
 export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
   const [open, setOpen] = useState(false);
   const panelRef        = useRef(null);
+  const gearRef         = useRef(null);
+  const [themeMessage, setThemeMessage] = useState("");
 
   // Close panel on outside click
   useEffect(() => {
@@ -40,8 +42,21 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
   return (
     <header className="h-14 shrink-0 bg-surface border-b border-border-subtle flex items-center px-4 relative z-40 font-sans">
       {/* Right side: gear button + panel */}
-      <div ref={panelRef} className="ml-auto relative">
+      <div
+        ref={panelRef}
+        className="ml-auto relative"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && open) {
+            setOpen(false);
+            gearRef.current?.focus();
+          }
+        }}
+      >
+        <div role="status" aria-live="polite" className="sr-only">
+          {themeMessage}
+        </div>
         <button
+          ref={gearRef}
           onClick={() => setOpen((v) => !v)}
           aria-label="Settings"
           aria-expanded={open}
@@ -71,7 +86,14 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
                 return (
                   <button
                     key={t.key}
-                    onClick={() => { onThemeChange(t.key); setOpen(false); }}
+                    onClick={() => {
+                      onThemeChange(t.key);
+                      setThemeMessage(`${t.label} theme applied.`);
+                      // Don't leave the spoken confirmation in the reading flow.
+                      setTimeout(() => setThemeMessage(""), 4000);
+                      setOpen(false);
+                      gearRef.current?.focus();
+                    }}
                     aria-pressed={active}
                     className={
                       "w-full flex items-center gap-3 px-3 py-2.5 rounded-radius-sm text-left transition-colors focus-ring " +

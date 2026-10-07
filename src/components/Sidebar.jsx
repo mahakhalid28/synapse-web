@@ -23,7 +23,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
   ];
 
   return (
-    <aside className="w-[200px] h-full bg-surface border-r border-border-subtle px-5 py-7 flex flex-col shrink-0 font-sans">
+    <div className="w-[200px] h-full bg-surface border-r border-border-subtle px-5 py-7 flex flex-col shrink-0 font-sans">
       {/* Wordmark block */}
       <div className="pb-6 border-b border-border-subtle">
         <div className="text-[18px] font-semibold text-text-primary leading-none">
@@ -54,7 +54,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
                 className={"block w-1 h-5 rounded-full shrink-0 " + (isActive ? "bg-accent" : "bg-transparent")}
               />
               <Icon />
-              <span className="flex-1 text-left">{label}</span>
+              <span className="flex-1 text-left">{label}</span>{" "}
               {count > 0 && (
                 <span className="text-[14px] text-text-secondary bg-surface-muted px-2 py-0.5 rounded-radius-sm">
                   {count}
@@ -83,7 +83,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
           </div>
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Home from "./components/Home";
 import SubjectLectures from "./components/SubjectLectures";
 import Timeline from "./components/Timeline";
@@ -22,6 +22,26 @@ function App() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("synapse_theme") || "paper"
   );
+
+  // A screen change here is a view swap, not a page load, so a screen reader
+  // is told nothing unless focus moves. Land on the new screen's <h1> (made
+  // programmatically focusable) so it announces "<title>, heading level 1".
+  // Skipped on the very first render so the skip link stays first in tab
+  // order for a first-time visitor. Timeline renders its <h1> only after its
+  // data loads, so it focuses it itself (see Timeline.jsx).
+  const isFirstScreenRef = useRef(true);
+  useEffect(() => {
+    if (isFirstScreenRef.current) {
+      isFirstScreenRef.current = false;
+      return;
+    }
+    if (screen === "timeline") return;
+    const h1 = document.querySelector("main h1");
+    if (h1) {
+      h1.setAttribute("tabindex", "-1");
+      h1.focus({ preventScroll: true });
+    }
+  }, [screen]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);

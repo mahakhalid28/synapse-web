@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
 import { getBookmarks, removeBookmark } from "../storage";
@@ -8,12 +8,19 @@ export default function BookmarksScreen({
   onOpenBookmark = () => {},
 }) {
   const [bookmarks, setBookmarks] = useState([]);
+  const h1Ref = useRef(null);
+  const [removedMessage, setRemovedMessage] = useState("");
 
   useEffect(() => { setBookmarks(getBookmarks()); }, []);
 
   const handleRemove = (id) => {
+    const removed = bookmarks.find((bm) => bm.id === id);
     removeBookmark(id);
     setBookmarks(getBookmarks());
+    // The focused Remove button is about to unmount — land on the heading
+    // instead of <body>, and say what happened.
+    setRemovedMessage(`Removed ${removed?.title || "bookmark"}.`);
+    h1Ref.current?.focus();
   };
 
   return (
@@ -25,8 +32,17 @@ export default function BookmarksScreen({
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="max-w-[700px] px-12 py-12">
 
-          <div className="text-[14px] font-medium text-text-secondary mb-3">Bookmarks</div>
-          <h1 className="text-[32px] font-bold text-text-primary mb-2">Your saved explanations.</h1>
+          <div aria-hidden="true" className="text-[14px] font-medium text-text-secondary mb-3">Bookmarks</div>
+          <h1
+            ref={h1Ref}
+            tabIndex={-1}
+            className="text-[32px] font-bold text-text-primary mb-2 outline-none"
+          >
+            Your saved explanations.
+          </h1>
+          <div role="status" aria-live="polite" className="sr-only">
+            {removedMessage}
+          </div>
           <p className="text-[15px] text-text-secondary mb-10">
             {bookmarks.length === 0
               ? "Nothing saved yet. Bookmark any explanation while reading it."
@@ -64,7 +80,10 @@ function BookmarkCard({ bookmark, onOpen, onRemove }) {
   });
 
   return (
-    <div className="flex items-start gap-4 p-5 bg-surface border border-border-subtle rounded-radius-md hover:border-border-strong transition-colors">
+    <article
+      aria-labelledby={`bm-title-${bookmark.id}`}
+      className="flex items-start gap-4 p-5 bg-surface border border-border-subtle rounded-radius-md hover:border-border-strong transition-colors"
+    >
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -83,9 +102,12 @@ function BookmarkCard({ bookmark, onOpen, onRemove }) {
           </span>
         </div>
 
-        <div className="text-[17px] font-semibold text-text-primary leading-snug mb-1">
+        <h2
+          id={`bm-title-${bookmark.id}`}
+          className="text-[17px] font-semibold text-text-primary leading-snug mb-1"
+        >
           {bookmark.title}
-        </div>
+        </h2>
 
         {bookmark.explanation?.subtitle && (
           <div className="text-[14px] text-text-secondary leading-relaxed line-clamp-2">
@@ -100,14 +122,22 @@ function BookmarkCard({ bookmark, onOpen, onRemove }) {
 
       {/* Actions */}
       <div className="flex flex-col items-end gap-2 shrink-0">
-        <button onClick={onOpen} className="ds-btn-secondary">
+        <button
+          onClick={onOpen}
+          aria-label={`Open ${bookmark.title}`}
+          className="ds-btn-secondary"
+        >
           Open <span aria-hidden="true">→</span>
         </button>
-        <button onClick={onRemove} className="ds-btn-text">
+        <button
+          onClick={onRemove}
+          aria-label={`Remove ${bookmark.title} from bookmarks`}
+          className="ds-btn-text"
+        >
           Remove
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 

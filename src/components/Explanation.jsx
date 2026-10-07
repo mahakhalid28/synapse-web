@@ -117,6 +117,20 @@ export default function Explanation({
   // for the pause/resume flow without the whole sidebar or explanation
   // being read aloud.
   const [srAnnouncement, setSrAnnouncement] = useState("");
+  // The single path for every spoken state change. Clearing first (then
+  // setting after a beat) makes a repeated identical message re-announce,
+  // and keeping this the only live region means exactly one message per event.
+  const announceTimerRef = useRef(null);
+  const announce = (msg) => {
+    clearTimeout(announceTimerRef.current);
+    setSrAnnouncement("");
+    announceTimerRef.current = setTimeout(() => {
+      setSrAnnouncement(msg);
+      // Don't leave stale text sitting in the reading flow once it was spoken.
+      announceTimerRef.current = setTimeout(() => setSrAnnouncement(""), 5000);
+    }, 60);
+  };
+  useEffect(() => () => clearTimeout(announceTimerRef.current), []);
   const [activePointId, setActivePointId] = useState(pointId);
   // Explicit user selection, or the first point once points have loaded, if
   // nothing's been chosen yet (arriving straight from Home rather than via
@@ -154,6 +168,10 @@ export default function Explanation({
   const playerContainerRef = useRef(null);
   const playerRef = useRef(null); // the YT.Player instance, for imperative control
   const [playerReady, setPlayerReady] = useState(false);
+  // Real YouTube player state ("unstarted" | "playing" | "paused" |
+  // "buffering" | "ended") — drives the status line and Play/Pause control so
+  // neither claims "Playing." before the learner has actually started it.
+  const [playerState, setPlayerState] = useState("unstarted");
   // Who currently owns the video's pause: null (playing, nobody owns it),
   // "user" (student paused/seeked manually), or "intervention" (Synapse
   // auto-paused for an explanation). This is the single source of truth for
@@ -204,6 +222,8 @@ export default function Explanation({
   const [askQuery, setAskQuery] = useState("");
   const [askAnswer, setAskAnswer] = useState(null);
   const [askLoading, setAskLoading] = useState(false);
+  const askAnswerRef = useRef(null);
+  const listenBtnRef = useRef(null);
 
   useEffect(() => {
     pauseOwnerRef.current = pauseOwner;
@@ -263,6 +283,11 @@ export default function Explanation({
     getInterventionPoints(jobId, videoId)
       .then((result) => {
         setAllPoints(result.points);
+        if (result.points.length > 0) {
+          announce(
+            `Lecture ready. ${result.points.length} moment${result.points.length === 1 ? "" : "s"} found.`,
+          );
+        }
         setVideoTitle(result.videoTitle || "");
         // Both already returned alongside videoTitle by this same call — no
         // new fetch needed. Left blank if the backend/mock ever omits them.
@@ -296,6 +321,10 @@ export default function Explanation({
           onStateChange: (e) => {
             const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
             if (e.data === YT_PLAYING) setPauseOwner(null);
+            setPlayerState(
+              { 0: "ended", 1: "playing", 2: "paused", 3: "buffering" }[e.data] ??
+                "unstarted",
+            );
           },
         },
       });
@@ -305,6 +334,7 @@ export default function Explanation({
       cancelled = true;
       playerRef.current = null;
       setPlayerReady(false);
+      setPlayerState("unstarted");
       player?.destroy?.();
     };
   }, [videoId]);
@@ -333,7 +363,12 @@ export default function Explanation({
           player.pauseVideo();
           setPauseOwner("intervention");
           setActivePointId(point.id);
-          setSrAnnouncement("Video paused. Explanation available.");
+          // The one announcement for this event (the visible status line is
+          // deliberately not a live region) — names the moment so the
+          // learner knows what changed without hunting for the heading.
+          announce(
+            `Paused at ${point.timestamp}: ${point.title}. Explanation ready.`,
+          );
           break;
         }
       }
@@ -423,7 +458,7 @@ export default function Explanation({
       // read via the ref since this listener isn't re-bound on every
       // pauseOwner change (see pauseOwnerRef above).
       if (pauseOwnerRef.current === "intervention") {
-        setSrAnnouncement("Explanation finished. Resuming lecture.");
+        announce("Explanation finished. Resuming lecture.");
         playerRef.current?.playVideo?.();
         setPauseOwner(null);
       }
@@ -457,12 +492,40 @@ export default function Explanation({
   const selectPointManually = (id) => {
     const point = allPoints.find((p) => p.id === id);
     if (point) {
+      // Seeking lands exactly on this point's timestamp — mark it as already
+      // triggered, otherwise the first Resume would immediately auto-pause
+      // again at the very spot the learner just chose to review.
+      triggeredPointIdsRef.current.add(id);
       const seconds = parseTimestampToSeconds(point.timestamp);
       playerRef.current?.seekTo?.(seconds, true);
       playerRef.current?.pauseVideo?.();
     }
     setPauseOwner("user");
     setActivePointId(id);
+    if (point) {
+      const idx = allPoints.findIndex((p) => p.id === id);
+      announce(
+        `Moment ${idx + 1} of ${allPoints.length}: ${point.title}, at ${point.timestamp}. Video paused.`,
+      );
+    }
+  };
+
+  // The learner's own Play / Pause / Resume control for the lecture (the
+  // YouTube iframe is inert in Accessibility Mode, so this is the only way
+  // to start it). The button's visible text changes with state, but NVDA
+  // doesn't re-read a text-content change on the focused button (only an
+  // aria-label change) — so the new state is announced explicitly.
+  const handleLectureToggle = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (playerState === "playing" || playerState === "buffering") {
+      player.pauseVideo?.();
+      setPauseOwner("user");
+      announce("Paused.");
+    } else {
+      handleResumeVideo();
+      announce("Playing.");
+    }
   };
 
   // The one manual "resume" affordance, regardless of who currently owns
@@ -566,7 +629,7 @@ export default function Explanation({
   const handleToggleFocus = () => {
     const next = !focusActive;
     setFocusActive(next);
-    setSrAnnouncement(next ? "Showing focused view." : "Showing full frame.");
+    announce(next ? "Showing focused view." : "Showing full frame.");
   };
 
   // Quick actions and the custom input both funnel through here — same
@@ -574,11 +637,18 @@ export default function Explanation({
   // the ask-about-visual endpoint.
   const handleAsk = (question) => {
     const trimmed = question.trim();
-    if (!trimmed) return;
+    if (!trimmed || askLoading) return;
     setAskLoading(true);
+    setAskAnswer(null);
+    announce("Getting an answer.");
     mockAskAboutVisual(trimmed, activePoint).then((answer) => {
       setAskAnswer(answer);
       setAskLoading(false);
+      announce("Answer ready.");
+      // Focus was on the control the learner just pressed; move it to the
+      // answer so it is read and focus is never left stranded. Deferred a
+      // tick so the answer node exists.
+      setTimeout(() => askAnswerRef.current?.focus(), 150);
     });
   };
 
@@ -589,7 +659,10 @@ export default function Explanation({
     (p) => p.id === effectiveActivePointId,
   ) ?? {
     id: effectiveActivePointId,
-    title: "Explanation",
+    // Placeholder until the first point loads. App.jsx focuses this <h1> on
+    // arrival, so the screen reader speaks it — "Explanation" alone said nothing
+    // about what was happening.
+    title: isProcessing ? "Preparing your lecture" : "Loading your lecture",
     category: "diagram",
     timestamp: "",
   };
@@ -685,11 +758,40 @@ export default function Explanation({
   const nextPoint =
     currentIndex < allPoints.length - 1 ? allPoints[currentIndex + 1] : null;
 
+  const isLecturePlaying =
+    playerState === "playing" || playerState === "buffering";
+  const lectureControlLabel = !playerReady
+    ? "Loading lecture player…"
+    : isLecturePlaying
+      ? "Pause lecture"
+      : playerState === "unstarted"
+        ? "Play lecture"
+        : playerState === "ended"
+          ? "Replay lecture"
+          : "Resume lecture";
+  // Honest, state-derived copy — "Playing." only when it really is.
+  const statusText =
+    pauseOwner === "intervention"
+      ? presentationMode === "study"
+        ? isPlaying
+          ? "Explaining this moment…"
+          : "Video paused for explanation."
+        : "Paused for this moment's explanation."
+      : isLecturePlaying
+        ? "Playing."
+        : playerState === "unstarted"
+          ? "Lecture not started."
+          : playerState === "ended"
+            ? "Lecture finished."
+            : "Paused.";
+
   // ---- Render --------------------------------------------------------------
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
-      <Sidebar active="home" onNavigate={onNavigate} />
+      <nav aria-label="Main navigation">
+        <Sidebar active="home" onNavigate={onNavigate} />
+      </nav>
 
       {/* Workbench — main reading column + (Study mode) Lecture Details
           column, capped and centered on very wide screens so the layout
@@ -707,8 +809,7 @@ export default function Explanation({
             {/* Inline processing status — replaces the old full-screen Processing route */}
             {(isProcessing || processingError) && (
               <div
-                role={processingError ? "alert" : "status"}
-                aria-live="polite"
+                role={processingError ? "alert" : undefined}
                 className="mb-6 flex items-center gap-3 px-4 py-3 bg-surface border border-border-subtle rounded-radius-md"
               >
                 {processingError ? (
@@ -726,7 +827,15 @@ export default function Explanation({
                 ) : (
                   <>
                     <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
-                    <span className="text-[14px] text-text-secondary flex-1">
+                    {/* Spoken once (static text); the ticking percentage is
+                    visual-only so it isn't re-announced every second. */}
+                    <span role="status" className="sr-only">
+                      Preparing your lecture. This can take about a minute.
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="text-[14px] text-text-secondary flex-1"
+                    >
                       Preparing your lecture… {processingProgress}%
                     </span>
                     <button
@@ -827,6 +936,21 @@ export default function Explanation({
               )}
             </div>
 
+            {/* Where am I? — Study mode shows this in the Lecture Details
+              panel; Accessibility mode has no such panel, so the lecture,
+              its author, and the position within the sequence are spoken
+              here, right after the moment header. */}
+            {presentationMode === "accessibility" && (
+              <p className="mt-3 text-[14px] text-text-secondary">
+                {videoTitle ? `Lecture: ${videoTitle}` : "Lecture"}
+                {videoAuthor ? ` by ${videoAuthor}` : ""}
+                {videoDuration ? `, length ${videoDuration}` : ""}.{" "}
+                {allPoints.length > 0 && currentIndex >= 0
+                  ? `Moment ${currentIndex + 1} of ${allPoints.length}.`
+                  : ""}
+              </p>
+            )}
+
             <p
               className={
                 "mt-3 mb-7 " +
@@ -893,6 +1017,13 @@ export default function Explanation({
                     ? "aspect-video rounded-radius-md overflow-hidden relative bg-surface-muted border border-border-subtle"
                     : "sr-only"
                 }
+                /* `inert` in Accessibility Mode removes the visually-hidden
+                   YouTube player from the tab order and the accessibility
+                   tree (its ~12 lines of title/channel/controls otherwise
+                   interrupt reading) — audio keeps playing, since inert
+                   doesn't touch media. Study Mode keeps the player fully
+                   interactive. */
+                inert={presentationMode === "study" ? undefined : ""}
               >
                 {/* This wrapper — not the ref'd div below — is what gets the
                 focus transform. YT.Player *replaces* playerContainerRef's
@@ -919,58 +1050,40 @@ export default function Explanation({
                 )}
               </div>
 
-              {/* Small status indicator, not an overlay — describes playback
-                state for both sighted users and screen readers. Accessibility
-                mode keeps its original three-line copy verbatim; Study mode
-                distinguishes "explaining" (TTS actually playing) from
-                "paused, not yet listening" per the target copy. */}
-              <div
-                role="status"
-                aria-live="polite"
-                className="mt-3 text-[14px] text-text-secondary"
-              >
-                {presentationMode === "accessibility"
-                  ? pauseOwner === "intervention"
-                    ? "Paused — explaining."
-                    : pauseOwner === "user"
-                      ? "Paused."
-                      : "Playing."
-                  : pauseOwner === "intervention"
-                    ? isPlaying
-                      ? "Explaining this moment…"
-                      : "Video paused for explanation."
-                    : pauseOwner === "user"
-                      ? "Video paused."
-                      : "Playing."}
+              {/* Small status indicator, not an overlay — describes the real
+                playback state for sighted users and for screen-reader users
+                reading the page. It is deliberately NOT a live region: every
+                spoken state change goes through the single sr-only region
+                below, so one event is announced exactly once. */}
+              <div className="mt-3 text-[14px] text-text-secondary">
+                {statusText}
               </div>
 
-              {/* Screen-reader-only transient announcements — short state
-                changes only, never the explanation text itself, so it never
-                overlaps or duplicates what Synapse's TTS is already reading. */}
+              {/* Screen-reader-only announcements — one short message per
+                event (never the explanation text itself, so it never
+                overlaps or duplicates what Synapse's TTS is reading). */}
               <div role="status" aria-live="polite" className="sr-only">
                 {srAnnouncement}
               </div>
 
-              {/* Accessibility mode's only way to resume, since the video
-                itself is visually hidden there — kept next to the video as
-                before. Study mode's equivalent control sits with the
-                explanation's audio controls below instead (see item 4:
-                Listen/Pause and Resume video belong together). */}
-              {presentationMode === "accessibility" && pauseOwner && (
+              {/* Accessibility mode's lecture control — the YouTube iframe is
+                inert there, so this is the learner's only way to start,
+                pause and resume the lecture. Study mode's equivalent (Resume
+                video) sits with the explanation's audio controls below. */}
+              {presentationMode === "accessibility" && (
                 <div className="mt-3">
-                  {/* The one primary (filled-accent) action in Accessibility
-                  Mode, same role as Resume video in Study Mode. */}
                   <button
-                    onClick={handleResumeVideo}
+                    type="button"
+                    onClick={handleLectureToggle}
+                    disabled={!playerReady}
                     className="ds-btn-primary"
                   >
-                    <span aria-hidden="true">▶</span>{" "}
-                    {/* This is the only way to resume playback in
-                    Accessibility Mode (the video itself is sr-only), so it
-                    must stay available regardless of who paused — but the
-                    label shouldn't claim Synapse caused a pause the learner
-                    triggered themselves via Previous/Next. */}
-                    {pauseOwner === "intervention" ? "Resume lecture" : "Resume"}
+                    <span aria-hidden="true">
+                      {playerState === "playing" || playerState === "buffering"
+                        ? "❚❚"
+                        : "▶"}
+                    </span>{" "}
+                    {lectureControlLabel}
                   </button>
                 </div>
               )}
@@ -1257,8 +1370,11 @@ export default function Explanation({
                             key={qa.label}
                             type="button"
                             onClick={() => handleAsk(qa.query)}
-                            disabled={askLoading}
-                            className="px-3 py-1.5 rounded-radius-sm border border-border-strong text-[14px] text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
+                            aria-disabled={askLoading || undefined}
+                            className={
+                              "px-3 py-1.5 rounded-radius-sm border border-border-strong text-[14px] text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring " +
+                              (askLoading ? "opacity-40 cursor-not-allowed" : "")
+                            }
                           >
                             {qa.label}
                           </button>
@@ -1280,8 +1396,13 @@ export default function Explanation({
                         <button
                           type="button"
                           onClick={() => handleAsk(askQuery)}
-                          disabled={askLoading || !askQuery.trim()}
-                          className="ds-btn-secondary disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                          aria-disabled={askLoading || !askQuery.trim() || undefined}
+                          className={
+                            "ds-btn-secondary shrink-0 " +
+                            (askLoading || !askQuery.trim()
+                              ? "opacity-40 cursor-not-allowed"
+                              : "")
+                          }
                         >
                           Ask
                         </button>
@@ -1297,7 +1418,13 @@ export default function Explanation({
                       content the student reads at their own pace, not a
                       short status transition, so it must NOT be aria-live. */}
                       {askAnswer && !askLoading && (
-                        <div className="mt-3 p-3 bg-surface-muted rounded-radius-md text-[14px] text-text-primary leading-[1.6]">
+                        <div
+                          ref={askAnswerRef}
+                          tabIndex={-1}
+                          role="group"
+                          aria-label="Answer"
+                          className="mt-3 p-3 bg-surface-muted rounded-radius-md text-[14px] text-text-primary leading-[1.6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                        >
                           {askAnswer}
                         </div>
                       )}
@@ -1329,14 +1456,17 @@ export default function Explanation({
                     }
                   >
                     <button
+                      ref={listenBtnRef}
                       onClick={togglePlay}
-                      disabled={!audioUrl}
+                      aria-disabled={!audioUrl || undefined}
                       aria-label={
                         isPlaying
                           ? "Pause explanation audio"
                           : "Listen to explanation audio"
                       }
-                      className="w-11 h-11 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
+                      className={"w-11 h-11 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors focus-ring " +
+                        (!audioUrl ? "opacity-40 cursor-not-allowed" : "")
+                      }
                     >
                       {audioLoading ? (
                         <span aria-hidden="true" className="text-[8px]">
@@ -1393,7 +1523,13 @@ export default function Explanation({
                   {presentationMode === "study" &&
                     pauseOwner === "intervention" && (
                       <button
-                        onClick={handleResumeVideo}
+                        onClick={() => {
+                          handleResumeVideo();
+                          // This button unmounts as the pause is released —
+                          // hand focus to Listen rather than dropping it.
+                          listenBtnRef.current?.focus();
+                          announce("Playing.");
+                        }}
                         className="ds-btn-primary shrink-0"
                       >
                         <span aria-hidden="true">▶</span> Resume video
@@ -1465,6 +1601,43 @@ export default function Explanation({
                 )}
               </div>
             </div>
+
+            {/* Moments in this lecture — Accessibility mode's equivalent of
+              the Study-mode Lecture Details list: lets the learner hear how
+              many moments exist and jump straight to any of them. */}
+            {presentationMode === "accessibility" && sortedPoints.length > 0 && (
+              <section aria-labelledby="moments-heading" className="mt-10">
+                <h2
+                  id="moments-heading"
+                  className="text-[18px] font-semibold text-text-primary mb-3"
+                >
+                  Moments in this lecture
+                </h2>
+                <ul className="space-y-1">
+                  {sortedPoints.map((point, i) => {
+                    const isActive = point.id === effectiveActivePointId;
+                    return (
+                      <li key={point.id}>
+                        <button
+                          type="button"
+                          onClick={() => selectPointManually(point.id)}
+                          aria-current={isActive ? "step" : undefined}
+                          className={
+                            "w-full text-left px-3 py-2 rounded-radius-sm text-[14px] border transition-colors focus-ring " +
+                            (isActive
+                              ? "border-accent bg-accent-soft text-text-primary font-medium"
+                              : "border-transparent text-text-secondary hover:bg-surface-muted")
+                          }
+                        >
+                          Moment {i + 1}, {point.timestamp}: {point.title},{" "}
+                          {point.category}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
           </div>
         </main>
 

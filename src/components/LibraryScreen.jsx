@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
 import { getLibrary, removeFromLibrary } from "../storage";
@@ -9,14 +9,21 @@ export default function LibraryScreen({
 }) {
   const [library, setLibrary] = useState([]);
   const [search, setSearch] = useState("");
+  const h1Ref = useRef(null);
+  const [removedMessage, setRemovedMessage] = useState("");
 
   useEffect(() => {
     setLibrary(getLibrary());
   }, []);
 
   const handleRemove = (id) => {
+    const removed = library.find((item) => item.id === id);
     removeFromLibrary(id);
     setLibrary(getLibrary());
+    // The focused Remove button is about to unmount — land on the heading
+    // instead of <body>, and say what happened.
+    setRemovedMessage(`Removed ${removed?.title || "explanation"} from your library.`);
+    h1Ref.current?.focus();
   };
 
   const query = search.toLowerCase().trim();
@@ -38,9 +45,16 @@ export default function LibraryScreen({
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="max-w-[680px] px-10 py-12">
           {/* ── Header ── */}
-          <h1 className="text-[32px] font-bold text-text-primary mb-6">
+          <h1
+            ref={h1Ref}
+            tabIndex={-1}
+            className="text-[32px] font-bold text-text-primary mb-6 outline-none"
+          >
             My Library
           </h1>
+          <div role="status" aria-live="polite" className="sr-only">
+            {removedMessage}
+          </div>
 
           {/* ── Search ── */}
           <div className="mb-8">
@@ -130,13 +144,16 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
     : "";
 
   return (
-    <div className="flex gap-4 p-4 bg-surface border border-border-subtle rounded-radius-md hover:border-border-strong transition-colors group">
+    <article
+      aria-labelledby={`lib-title-${item.id}`}
+      className="flex gap-4 p-4 bg-surface border border-border-subtle rounded-radius-md hover:border-border-strong transition-colors group"
+    >
       {/* Thumbnail — small, fixed width */}
       <div className="w-[120px] shrink-0 aspect-video rounded-radius-md overflow-hidden bg-gradient-to-br from-[#3B4870] to-[#8B6B4A] relative">
         {thumbnailUrl && (
           <img
             src={thumbnailUrl}
-            alt="frame"
+            alt=""
             className="w-full h-full object-cover"
             onError={(e) => (e.currentTarget.style.display = "none")}
           />
@@ -164,7 +181,7 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
           announced usefully. */}
           <button
             onClick={onRemove}
-            aria-label="Remove from library"
+            aria-label={`Remove ${item.title} from library`}
             className="ml-auto text-text-muted hover:text-text-primary text-[14px] leading-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity focus-ring rounded-radius-sm"
           >
             ×
@@ -172,7 +189,10 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
         </div>
 
         {/* Title */}
-        <h3 className="text-[15px] font-semibold text-text-primary leading-snug line-clamp-2 mb-1">
+        <h3
+          id={`lib-title-${item.id}`}
+          className="text-[15px] font-semibold text-text-primary leading-snug line-clamp-2 mb-1"
+        >
           {item.title}
         </h3>
 
@@ -186,17 +206,25 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
         column of competing accent buttons); Play audio gets the
         accent-outline variant the spec reserves for Listen-like actions. */}
         <div className="flex gap-2 mt-auto">
-          <button onClick={onReadText} className="ds-btn-secondary">
+          <button
+            onClick={onReadText}
+            aria-label={`Read text: ${item.title}`}
+            className="ds-btn-secondary"
+          >
             <DocIcon />
             Read text
           </button>
-          <button onClick={onPlayAudio} className="ds-btn-accent-outline">
+          <button
+            onClick={onPlayAudio}
+            aria-label={`Play audio: ${item.title}`}
+            className="ds-btn-accent-outline"
+          >
             <PlayIcon />
             Play audio
           </button>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
