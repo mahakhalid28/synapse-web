@@ -78,17 +78,22 @@ function computeFocusTransform(region) {
 }
 
 // Single source for the on-page list and the spoken version (Alt+K).
+const RATES = [0.75, 1, 1.25, 1.5, 2];
+
 const SHORTCUTS = [
   ["Alt+P", "Play, pause or resume the lecture"],
   ["Alt+L", "Listen to or pause the explanation audio"],
   ["Alt+N", "Next moment"],
   ["Alt+B", "Previous moment"],
   ["Alt+R", "Read: jump to the start of the explanation"],
+  ["Alt+. / Alt+,", "Listen faster / slower"],
   ["Alt+K", "Hear this list"],
 ];
 const SHORTCUTS_SPOKEN =
   "Keyboard shortcuts. " +
-  SHORTCUTS.map(([k, d]) => `${k.replace("+", " plus ")}: ${d}.`).join(" ");
+  SHORTCUTS.map(([k, d]) =>
+    `${k.replace("Alt+. / Alt+,", "Alt plus period, or Alt plus comma").replace("+", " plus ")}: ${d}.`,
+  ).join(" ");
 
 /**
  * Explanation — opens when the user clicks a point on the Timeline.
@@ -168,6 +173,17 @@ export default function Explanation({
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioUrl, setAudioUrl] = useState(null);
   const [audioLoading, setAudioLoading] = useState(false);
+  // Listening speed for Synapse's explanation audio (screen-reader users often
+  // listen at 2x+); remembered across moments and sessions.
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    try {
+      const saved = parseFloat(localStorage.getItem("synapse_tts_rate"));
+      return RATES.includes(saved) ? saved : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const playbackRateRef = useRef(playbackRate);
   // Points whose explanation audio has completed at least once this
   // session — drives the "Played automatically · Replay" vs "Listen" label
   // distinction below. Persists across point navigation within the same
@@ -485,6 +501,7 @@ export default function Explanation({
     if (!audioUrl) return;
 
     const audio = new Audio(audioUrl);
+    audio.playbackRate = playbackRateRef.current;
     audioRef.current = audio;
 
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
@@ -602,6 +619,29 @@ export default function Explanation({
         .then(() => setIsPlaying(true))
         .catch(() => {});
     }
+  };
+
+  // Applies live (mid-playback) and persists; spoken once.
+  const changeRate = (rate, speak = true) => {
+    playbackRateRef.current = rate;
+    setPlaybackRate(rate);
+    if (audioRef.current) audioRef.current.playbackRate = rate;
+    try {
+      localStorage.setItem("synapse_tts_rate", String(rate));
+    } catch {
+      // storage unavailable — the choice just won't persist
+    }
+    // The native <select> already speaks its new value to a screen reader.
+    if (speak) announce(`Listening speed ${rate} times.`);
+  };
+  const stepRate = (dir) => {
+    const i = RATES.indexOf(playbackRateRef.current);
+    const next = RATES[Math.min(RATES.length - 1, Math.max(0, i + dir))];
+    if (next === playbackRateRef.current) {
+      announce(dir > 0 ? "Already at the fastest speed." : "Already at the slowest speed.");
+      return;
+    }
+    changeRate(next);
   };
 
   const handleBookmark = () => {
@@ -846,7 +886,11 @@ export default function Explanation({
           announce("Explanation audio isn't ready yet.");
           return;
         }
-        announce(isPlaying ? "Explanation paused." : "Listening to the explanation.");
+        // With the Listen button focused its own name change is already
+        // spoken ("Pause explanation audio"), so only announce otherwise.
+        if (document.activeElement !== listenBtnRef.current) {
+          announce(isPlaying ? "Explanation paused." : "Listening to the explanation.");
+        }
         togglePlay();
       },
       KeyN: () =>
@@ -858,6 +902,8 @@ export default function Explanation({
           ? selectPointManually(prevPoint.id)
           : announce("This is the first moment."),
       KeyR: () => explanationHeadingRef.current?.focus(),
+      Period: () => stepRate(1),
+      Comma: () => stepRate(-1),
       KeyK: () => announce(SHORTCUTS_SPOKEN),
     };
   });
@@ -868,7 +914,10 @@ export default function Explanation({
       if (t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text"))) return;
       // e.code is empty for some synthetic/assistive-tech key events, so fall
       // back to the typed letter.
-      const code = e.code || (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : "");
+      const code =
+        e.code ||
+        ({ ".": "Period", ",": "Comma" }[e.key] ??
+          (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : ""));
       const action = shortcutsRef.current[code];
       if (!action) return;
       e.preventDefault();
@@ -1385,7 +1434,7 @@ export default function Explanation({
                 ProvenanceLabel as Study Mode's Structured View tab (added
                 Phase 5) since it's the identical underlying factual data —
                 "From the video", not a Synapse interpretation. */}
-                {presentationMode === "accessibility" && structuredRows && (
+                {presentationMode === "accessibility" && (
                   <div className="mb-7">
                     <h3
                       className={
@@ -1396,6 +1445,8 @@ export default function Explanation({
                     >
                       Accessible visual information
                     </h3>
+                    {structuredRows ? (
+                      <>
                     <ProvenanceLabel kind="video" className="mb-3" />
                     <dl className="space-y-2 m-0">
                       {structuredRows.map((row) => (
@@ -1423,11 +1474,30 @@ export default function Explanation({
                         </div>
                       ))}
                     </dl>
+                      </>
+                    ) : (
+                      // Say so, rather than leaving the section out — silence
+                      // can't be told apart from "I missed it".
+                      <p
+                        className={highContrast ? "text-black" : "text-text-secondary"}
+                        style={{ fontSize: `${15 * textScale}px` }}
+                      >
+                        A detailed description of this visual isn&rsquo;t
+                        available for this moment. The explanation above
+                        describes what it means.
+                      </p>
+                    )}
                   </div>
                 )}
 
                 {/* Key insight pull quote */}
                 {explanation?.keyInsight && (
+                  <>
+                  {/* A real heading so heading navigation finds it and the
+                  quote is introduced before it is read; the visible label
+                  below stays where it was and is hidden from screen readers
+                  so it isn't spoken twice. */}
+                  <h3 className="sr-only">Key insight</h3>
                   <blockquote className="my-7 pl-6 py-1 border-l-2 border-accent text-text-secondary">
                     <p
                       className={
@@ -1437,10 +1507,14 @@ export default function Explanation({
                     >
                       {explanation.keyInsight}
                     </p>
-                    <p className="text-[14px] text-text-muted mt-2.5">
+                    <p
+                      aria-hidden="true"
+                      className="text-[14px] text-text-muted mt-2.5"
+                    >
                       Key insight
                     </p>
                   </blockquote>
+                  </>
                 )}
 
                 {/* Ask about this visual — scoped strictly to this
@@ -1614,6 +1688,22 @@ export default function Explanation({
                       </div>
                     </div>
                   </div>
+
+                  <label className="flex items-center gap-2 text-[14px] text-text-secondary shrink-0">
+                    Listening speed
+                    <select
+                      value={playbackRate}
+                      onChange={(e) => changeRate(parseFloat(e.target.value), false)}
+                      aria-keyshortcuts="Alt+. Alt+,"
+                      className="min-h-[36px] px-2 rounded-radius-sm border border-border-strong bg-surface text-text-primary focus-ring"
+                    >
+                      {RATES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}×
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
                   {/* The one primary (filled-accent) action in this
                   cluster, per the design spec: Resume video = primary,
