@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import LectureResultsList from "./LectureResultsList";
 import useLectureSearch from "../hooks/useLectureSearch";
+import useFocusShortcut from "../hooks/useFocusShortcut";
 
 // One reusable view for every subject — SubjectLectures("Mathematics"),
 // SubjectLectures("Physics"), etc. all render through this same component
@@ -26,6 +27,8 @@ export default function SubjectLectures({
   } = useLectureSearch({ onProcess, defaultDepth, initialQuery: subject });
 
   const h1Ref = useRef(null);
+  const inputRef = useRef(null);
+  useFocusShortcut(inputRef); // Alt+S: jump to the search field
   const inputId = "subject-lecture-input";
 
   // Load results relevant to the subject immediately, before the user types
@@ -76,6 +79,7 @@ export default function SubjectLectures({
             <div className="ds-field">
               <input
                 id={inputId}
+                ref={inputRef}
                 type="text"
                 value={url}
                 onChange={handleUrlChange}

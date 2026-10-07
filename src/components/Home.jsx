@@ -2,6 +2,7 @@ import { useRef, useEffect, useMemo } from "react";
 import Sidebar from "./Sidebar";
 import LectureResultsList from "./LectureResultsList";
 import useLectureSearch from "../hooks/useLectureSearch";
+import useFocusShortcut from "../hooks/useFocusShortcut";
 import { getLibrary } from "../storage";
 
 const SUBJECTS = ["Mathematics", "Physics", "Computer Science", "Chemistry", "Biology"];
@@ -30,6 +31,7 @@ export default function Home({
 
   const inputRef = useRef(null);
   const h1Ref = useRef(null);
+  useFocusShortcut(inputRef); // Alt+S: jump to the lecture search field
 
   // Only focus the H1 when this mount is a real in-app navigation back to
   // Home (e.g. from a subject's results view) — not on the app's very first
@@ -105,7 +107,8 @@ export default function Home({
               this app does before they have to find out by trial. */}
           <p className="text-[15px] text-text-secondary leading-relaxed mb-6 max-w-[640px]">
             Synapse plays a YouTube lecture and pauses at diagrams, equations
-            and charts to explain them. Choose a lecture below to begin.
+            and charts to explain them. Choose a lecture below to begin, or press
+            Alt plus S at any time to jump to the search field.
           </p>
 
           {continueLecture && (
