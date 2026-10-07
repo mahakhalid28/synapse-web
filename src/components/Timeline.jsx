@@ -186,7 +186,7 @@ export default function Timeline({
           {/* ── Timeline ── */}
           <div className="mb-6">
             <div className="text-[14px] font-medium text-text-secondary mb-4">
-              Intervention timeline
+              Timeline of moments
               <span className="sr-only">
                 {" "}
                 — a visual chart of the moments below; use the list for the same

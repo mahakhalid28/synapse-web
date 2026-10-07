@@ -1746,7 +1746,7 @@ export default function Explanation({
               {/* Intervention Points section — connected vertical stepper */}
               <div className="p-4 border-t border-border-subtle">
                 <h3 className="text-[15px] font-semibold text-text-secondary mb-3">
-                  Intervention Points
+                  Moments in this lecture
                 </h3>
                 <div className="relative">
                   {/* Connecting line running behind every dot */}
