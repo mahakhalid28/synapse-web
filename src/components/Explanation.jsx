@@ -224,10 +224,27 @@ export default function Explanation({
   const [askLoading, setAskLoading] = useState(false);
   const askAnswerRef = useRef(null);
   const listenBtnRef = useRef(null);
+  // Start of the explanation content. In Accessibility Mode, focus lands here
+  // whenever a new moment becomes active (auto-pause, Next/Previous, jump) so
+  // the learner is already at the content instead of on a control far below it.
+  const explanationHeadingRef = useRef(null);
 
   useEffect(() => {
     pauseOwnerRef.current = pauseOwner;
   }, [pauseOwner]);
+
+  // Read by the interval/handlers below without re-binding them on mode change.
+  const presentationModeRef = useRef(presentationMode);
+  useEffect(() => {
+    presentationModeRef.current = presentationMode;
+  }, [presentationMode]);
+
+  // Never auto-reads: the explanation waits for the learner to press Listen
+  // (or read it with their own screen reader). Focus just goes to its start.
+  const focusExplanationStart = () => {
+    if (presentationModeRef.current !== "accessibility") return;
+    setTimeout(() => explanationHeadingRef.current?.focus(), 0);
+  };
 
   useEffect(() => {
     localStorage.setItem("synapse_presentation_mode", presentationMode);
@@ -367,8 +384,9 @@ export default function Explanation({
           // deliberately not a live region) — names the moment so the
           // learner knows what changed without hunting for the heading.
           announce(
-            `Paused at ${point.timestamp}: ${point.title}. Explanation ready.`,
+            `Paused at ${point.timestamp}: ${point.title}. The explanation is below. Use the Listen button to hear it.`,
           );
+          focusExplanationStart();
           break;
         }
       }
@@ -505,8 +523,9 @@ export default function Explanation({
     if (point) {
       const idx = allPoints.findIndex((p) => p.id === id);
       announce(
-        `Moment ${idx + 1} of ${allPoints.length}: ${point.title}, at ${point.timestamp}. Video paused.`,
+        `Moment ${idx + 1} of ${allPoints.length}: ${point.title}, at ${point.timestamp}. Video paused. The explanation is below. Use the Listen button to hear it.`,
       );
+      focusExplanationStart();
     }
   };
 
@@ -1240,11 +1259,14 @@ export default function Explanation({
                   : "bg-surface border border-border-subtle")
               }
             >
-              <section aria-labelledby="explanation-heading">
+              {/* A bare container, not a named region: a region named "Explanation" followed by an "Explanation" heading was spoken twice. */}
+              <div>
                 <h2
                   id="explanation-heading"
+                  ref={explanationHeadingRef}
+                  tabIndex={-1}
                   className={
-                    "font-semibold mb-4 " +
+                    "outline-none font-semibold mb-4 " +
                     (highContrast ? "text-black" : "text-text-primary")
                   }
                   style={{ fontSize: `${24 * textScale}px` }}
@@ -1536,7 +1558,7 @@ export default function Explanation({
                       </button>
                     )}
                 </div>
-              </section>
+              </div>
 
               {/* Secondary actions — deliberately quieter (plain text-style
               buttons) than the Listen/Pause + Resume video controls above,
