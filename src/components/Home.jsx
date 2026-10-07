@@ -1,7 +1,8 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import Sidebar from "./Sidebar";
 import LectureResultsList from "./LectureResultsList";
 import useLectureSearch from "../hooks/useLectureSearch";
+import { getLibrary } from "../storage";
 
 const SUBJECTS = ["Mathematics", "Physics", "Computer Science", "Chemistry", "Biology"];
 
@@ -10,12 +11,7 @@ export default function Home({
   onNavigate = () => {},
   onExploreSubject = () => {},
   focusHeadingOnMount = false,
-  continueLecture = {
-    title: "Eigenvectors and Eigenvalues",
-    videoId: "PFDu9oVAE-g",
-    conceptsExplored: 3,
-    totalConcepts: 7,
-  },
+  continueLecture: continueLectureProp,
   defaultDepth = "standard",
 }) {
   const {
@@ -44,9 +40,20 @@ export default function Home({
     }
   }, [focusHeadingOnMount]);
 
-  const continuePct = continueLecture
-    ? Math.round((continueLecture.conceptsExplored / continueLecture.totalConcepts) * 100)
-    : 0;
+  // Real history only: the most recently opened explanation in the Library.
+  // A first-time visitor has none, so nothing is shown — never sample data
+  // posing as progress they didn't make.
+  const continueLecture = useMemo(() => {
+    if (continueLectureProp !== undefined) return continueLectureProp;
+    const last = getLibrary().find((item) => item.videoId);
+    if (!last) return null;
+    return {
+      title: last.videoTitle || last.title,
+      videoId: last.videoId,
+      lastMoment: last.title,
+      timestamp: last.timestamp,
+    };
+  }, [continueLectureProp]);
 
   function resumeContinueLecture() {
     setStatusMessage(`Resuming ${continueLecture.title}.`);
@@ -94,11 +101,18 @@ export default function Home({
             Start a study session
           </h1>
 
+          {/* Plain text, read in order — tells a first-time visitor what
+              this app does before they have to find out by trial. */}
+          <p className="text-[15px] text-text-secondary leading-relaxed mb-6 max-w-[640px]">
+            Synapse plays a YouTube lecture and pauses at diagrams, equations
+            and charts to explain them. Choose a lecture below to begin.
+          </p>
+
           {continueLecture && (
             <button
               type="button"
               onClick={resumeContinueLecture}
-              aria-label={`Continue: ${continueLecture.title}, ${continueLecture.conceptsExplored} of ${continueLecture.totalConcepts} concepts explored`}
+              aria-label={`Continue learning: ${continueLecture.title}. Last opened: ${continueLecture.lastMoment}${continueLecture.timestamp ? ` at ${continueLecture.timestamp}` : ""}.`}
               className="mb-8 block w-full text-left px-3.5 py-2.5 bg-surface-muted border border-border-strong/70 rounded-radius-md hover:border-accent outline-none transition-colors focus-ring"
             >
               <span aria-hidden="true" className="block text-[13px] text-text-muted mb-1">
@@ -107,16 +121,9 @@ export default function Home({
               <span aria-hidden="true" className="block text-[14px] font-medium text-text-primary">
                 {continueLecture.title}
               </span>
-              <span aria-hidden="true" className="mt-2 flex items-center gap-2">
-                <span className="h-1 w-20 rounded-full bg-border-subtle overflow-hidden shrink-0">
-                  <span
-                    className="block h-full rounded-full bg-accent"
-                    style={{ width: `${continuePct}%` }}
-                  />
-                </span>
-                <span className="text-[13px] text-text-secondary">
-                  {continueLecture.conceptsExplored} of {continueLecture.totalConcepts} concepts explored
-                </span>
+              <span aria-hidden="true" className="mt-1 block text-[13px] text-text-secondary">
+                Last opened: {continueLecture.lastMoment}
+                {continueLecture.timestamp ? ` at ${continueLecture.timestamp}` : ""}
               </span>
             </button>
           )}

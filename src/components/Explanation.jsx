@@ -301,8 +301,24 @@ export default function Explanation({
       .then((result) => {
         setAllPoints(result.points);
         if (result.points.length > 0) {
+          const n = result.points.length;
+          let intro = "";
+          // First lecture ever only: say how the session works, once, in the
+          // same single message (never a second announcement).
+          try {
+            if (
+              presentationModeRef.current === "accessibility" &&
+              !localStorage.getItem("synapse_intro_seen")
+            ) {
+              localStorage.setItem("synapse_intro_seen", "1");
+              intro =
+                " Press Play lecture to begin. It pauses at each visual; then read the explanation below or use the Listen button.";
+            }
+          } catch {
+            // storage unavailable — skip the one-time hint
+          }
           announce(
-            `Lecture ready. ${result.points.length} moment${result.points.length === 1 ? "" : "s"} found.`,
+            `Lecture ready. ${n} moment${n === 1 ? "" : "s"} found.${intro}`,
           );
         }
         setVideoTitle(result.videoTitle || "");
