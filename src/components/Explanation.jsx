@@ -77,6 +77,19 @@ function computeFocusTransform(region) {
   return `scale(${scale}) translate(${translateX}%, ${translateY}%)`;
 }
 
+// Single source for the on-page list and the spoken version (Alt+K).
+const SHORTCUTS = [
+  ["Alt+P", "Play, pause or resume the lecture"],
+  ["Alt+L", "Listen to or pause the explanation audio"],
+  ["Alt+N", "Next moment"],
+  ["Alt+B", "Previous moment"],
+  ["Alt+R", "Read: jump to the start of the explanation"],
+  ["Alt+K", "Hear this list"],
+];
+const SHORTCUTS_SPOKEN =
+  "Keyboard shortcuts. " +
+  SHORTCUTS.map(([k, d]) => `${k.replace("+", " plus ")}: ${d}.`).join(" ");
+
 /**
  * Explanation — opens when the user clicks a point on the Timeline.
  *
@@ -312,7 +325,7 @@ export default function Explanation({
             ) {
               localStorage.setItem("synapse_intro_seen", "1");
               intro =
-                " Press Play lecture to begin. It pauses at each visual; then read the explanation below or use the Listen button.";
+                " Press Play lecture to begin. It pauses at each visual; then read the explanation below or use the Listen button. Press Alt plus K for keyboard shortcuts.";
             }
           } catch {
             // storage unavailable — skip the one-time hint
@@ -820,6 +833,51 @@ export default function Explanation({
             ? "Lecture finished."
             : "Paused.";
 
+  // Keyboard shortcuts (Alt+letter — NVDA leaves these to the app, and the
+  // letters avoid Electron's default menu mnemonics F/E/V/W/H). The listener
+  // is bound once; it reads the latest handlers through this ref, refreshed
+  // after every render.
+  const shortcutsRef = useRef({});
+  useEffect(() => {
+    shortcutsRef.current = {
+      KeyP: handleLectureToggle,
+      KeyL: () => {
+        if (!audioRef.current) {
+          announce("Explanation audio isn't ready yet.");
+          return;
+        }
+        announce(isPlaying ? "Explanation paused." : "Listening to the explanation.");
+        togglePlay();
+      },
+      KeyN: () =>
+        nextPoint
+          ? selectPointManually(nextPoint.id)
+          : announce("This is the last moment."),
+      KeyB: () =>
+        prevPoint
+          ? selectPointManually(prevPoint.id)
+          : announce("This is the first moment."),
+      KeyR: () => explanationHeadingRef.current?.focus(),
+      KeyK: () => announce(SHORTCUTS_SPOKEN),
+    };
+  });
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const t = e.target;
+      if (t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text"))) return;
+      // e.code is empty for some synthetic/assistive-tech key events, so fall
+      // back to the typed letter.
+      const code = e.code || (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : "");
+      const action = shortcutsRef.current[code];
+      if (!action) return;
+      e.preventDefault();
+      action();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // ---- Render --------------------------------------------------------------
 
   return (
@@ -1109,6 +1167,7 @@ export default function Explanation({
                 <div className="mt-3">
                   <button
                     type="button"
+                    aria-keyshortcuts="Alt+P"
                     onClick={handleLectureToggle}
                     disabled={!playerReady}
                     className="ds-btn-primary"
@@ -1495,6 +1554,7 @@ export default function Explanation({
                   >
                     <button
                       ref={listenBtnRef}
+                      aria-keyshortcuts="Alt+L"
                       onClick={togglePlay}
                       aria-disabled={!audioUrl || undefined}
                       aria-label={
@@ -1611,6 +1671,7 @@ export default function Explanation({
                 {prevPoint ? (
                   <button
                     onClick={() => selectPointManually(prevPoint.id)}
+                    aria-keyshortcuts="Alt+B"
                     className="text-left text-text-secondary hover:text-text-primary transition-colors rounded-radius-sm focus-ring"
                   >
                     <div className="text-[14px] text-text-muted mb-1">
@@ -1627,6 +1688,7 @@ export default function Explanation({
                 {nextPoint && (
                   <button
                     onClick={() => selectPointManually(nextPoint.id)}
+                    aria-keyshortcuts="Alt+N"
                     className="text-right text-text-secondary hover:text-text-primary transition-colors rounded-radius-sm focus-ring"
                   >
                     <div className="text-[14px] text-text-muted mb-1">
@@ -1676,6 +1738,24 @@ export default function Explanation({
                 </ul>
               </section>
             )}
+
+            <section aria-labelledby="shortcuts-heading" className="mt-10">
+              <h2
+                id="shortcuts-heading"
+                className="text-[18px] font-semibold text-text-primary mb-3"
+              >
+                Keyboard shortcuts
+              </h2>
+              <ul className="space-y-1 text-[14px] text-text-secondary">
+                {SHORTCUTS.map(([keys, what]) => (
+                  <li key={keys}>
+                    <span className="font-mono text-text-primary">{keys}</span>
+                    {" — "}
+                    {what}
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
         </main>
 
