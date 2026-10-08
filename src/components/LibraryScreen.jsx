@@ -16,16 +16,6 @@ export default function LibraryScreen({
     setLibrary(getLibrary());
   }, []);
 
-  const handleRemove = (id) => {
-    const removed = library.find((item) => item.id === id);
-    removeFromLibrary(id);
-    setLibrary(getLibrary());
-    // The focused Remove button is about to unmount — land on the heading
-    // instead of <body>, and say what happened.
-    setRemovedMessage(`Removed ${removed?.title || "explanation"} from your library.`);
-    h1Ref.current?.focus();
-  };
-
   const query = search.toLowerCase().trim();
   const visible = query
     ? library.filter(
@@ -35,6 +25,35 @@ export default function LibraryScreen({
           (item.category || "").toLowerCase().includes(query),
       )
     : library;
+
+  // Where focus goes once the removed card (and its focused Remove button)
+  // has unmounted: the neighbouring card's Remove button, so the learner
+  // keeps their place in the list; the heading only when nothing is left.
+  const pendingFocusRef = useRef(null);
+  useEffect(() => {
+    const target = pendingFocusRef.current;
+    if (!target) return;
+    pendingFocusRef.current = null;
+    if (target === "heading") h1Ref.current?.focus();
+    else document.getElementById(`lib-remove-${target}`)?.focus();
+  }, [library]);
+
+  const handleRemove = (id) => {
+    const removed = library.find((item) => item.id === id);
+    const at = visible.findIndex((item) => item.id === id);
+    const neighbour = visible[at + 1] ?? visible[at - 1];
+    pendingFocusRef.current = neighbour ? neighbour.id : "heading";
+    removeFromLibrary(id);
+    const remaining = getLibrary();
+    setLibrary(remaining);
+    setRemovedMessage(
+      `Removed ${removed?.title || "explanation"} from your library. ${
+        remaining.length === 0
+          ? "Your library is now empty."
+          : `${remaining.length} left.`
+      }`,
+    );
+  };
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
@@ -180,6 +199,7 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
           hover-only), with a real accessible name since "×" alone isn't
           announced usefully. */}
           <button
+            id={`lib-remove-${item.id}`}
             onClick={onRemove}
             aria-label={`Remove ${item.title} from library`}
             className="ml-auto text-text-muted hover:text-text-primary text-[14px] leading-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity focus-ring rounded-radius-sm"
@@ -208,7 +228,7 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
         <div className="flex gap-2 mt-auto">
           <button
             onClick={onReadText}
-            aria-label={`Read text: ${item.title}`}
+            aria-label={`Read text: ${item.title}${item.videoTitle ? `, from ${item.videoTitle}` : ""}`}
             className="ds-btn-secondary"
           >
             <DocIcon />
@@ -216,7 +236,7 @@ function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
           </button>
           <button
             onClick={onPlayAudio}
-            aria-label={`Play audio: ${item.title}`}
+            aria-label={`Play audio: ${item.title}${item.videoTitle ? `, from ${item.videoTitle}` : ""}`}
             className="ds-btn-accent-outline"
           >
             <PlayIcon />
@@ -237,7 +257,7 @@ function EmptyState() {
         <span aria-hidden="true" className="text-text-muted text-lg">▶</span>
       </div>
       <p className="text-[14px] text-text-muted max-w-[260px] leading-relaxed">
-        Open any explanation from the Timeline and it will be saved here
+        Open any lecture and the explanations you view will be saved here
         automatically.
       </p>
     </div>

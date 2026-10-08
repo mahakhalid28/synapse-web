@@ -1,15 +1,19 @@
 import { useState, useEffect } from "react";
-import { getBookmarks, getLibrary } from "../storage";
+import { getBookmarks, getLibrary, STORAGE_CHANGED_EVENT } from "../storage";
 
 export default function Sidebar({ active = "home", onNavigate = () => {} }) {
   const [bookmarkCount, setBookmarkCount] = useState(0);
   const [recentVideo, setRecentVideo]     = useState(null);
 
   useEffect(() => {
-    setBookmarkCount(getBookmarks().length);
-    const lib = getLibrary();
-    if (lib.length > 0) setRecentVideo(lib[0]);
-  }, [active]); // re-read when active screen changes (user may have added items)
+    const read = () => {
+      setBookmarkCount(getBookmarks().length);
+      setRecentVideo(getLibrary()[0] ?? null);
+    };
+    read(); // re-read when the active screen changes...
+    window.addEventListener(STORAGE_CHANGED_EVENT, read); // ...and whenever items are added or removed
+    return () => window.removeEventListener(STORAGE_CHANGED_EVENT, read);
+  }, [active]);
 
   // "Settings" deliberately isn't a nav item here — App.jsx's screen list
   // (CLAUDE.md) never included a "settings" screen, and Navbar's gear icon
@@ -56,9 +60,12 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
               <Icon />
               <span className="flex-1 text-left">{label}</span>{" "}
               {count > 0 && (
-                <span className="text-[14px] text-text-secondary bg-surface-muted px-2 py-0.5 rounded-radius-sm">
-                  {count}
-                </span>
+                <>
+                  <span aria-hidden="true" className="text-[14px] text-text-secondary bg-surface-muted px-2 py-0.5 rounded-radius-sm">
+                    {count}
+                  </span>
+                  <span className="sr-only">, {count} saved</span>
+                </>
               )}
             </button>
           );
@@ -70,7 +77,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
         <div className="text-[14px] font-medium text-text-secondary mb-2">Recently processed</div>
         {recentVideo ? (
           <div className="text-[14px] leading-snug">
-            <div className="truncate text-text-primary">{recentVideo.title || recentVideo.videoTitle}</div>
+            <div className="truncate text-text-primary">{recentVideo.videoTitle || recentVideo.title}</div>
             <div className="text-text-muted mt-0.5">
               {new Date(recentVideo.savedAt || recentVideo.processedAt).toLocaleDateString("en-US", {
                 month: "short", day: "numeric",

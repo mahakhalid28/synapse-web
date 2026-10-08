@@ -13,14 +13,30 @@ export default function BookmarksScreen({
 
   useEffect(() => { setBookmarks(getBookmarks()); }, []);
 
+  // After the removed card unmounts, focus the neighbouring card's Remove
+  // button so the learner keeps their place; the heading only when none is left.
+  const pendingFocusRef = useRef(null);
+  useEffect(() => {
+    const target = pendingFocusRef.current;
+    if (!target) return;
+    pendingFocusRef.current = null;
+    if (target === "heading") h1Ref.current?.focus();
+    else document.getElementById(`bm-remove-${target}`)?.focus();
+  }, [bookmarks]);
+
   const handleRemove = (id) => {
     const removed = bookmarks.find((bm) => bm.id === id);
+    const at = bookmarks.findIndex((bm) => bm.id === id);
+    const neighbour = bookmarks[at + 1] ?? bookmarks[at - 1];
+    pendingFocusRef.current = neighbour ? neighbour.id : "heading";
     removeBookmark(id);
-    setBookmarks(getBookmarks());
-    // The focused Remove button is about to unmount — land on the heading
-    // instead of <body>, and say what happened.
-    setRemovedMessage(`Removed ${removed?.title || "bookmark"}.`);
-    h1Ref.current?.focus();
+    const remaining = getBookmarks();
+    setBookmarks(remaining);
+    setRemovedMessage(
+      `Removed ${removed?.title || "bookmark"}. ${
+        remaining.length === 0 ? "No bookmarks left." : `${remaining.length} left.`
+      }`,
+    );
   };
 
   return (
@@ -124,12 +140,13 @@ function BookmarkCard({ bookmark, onOpen, onRemove }) {
       <div className="flex flex-col items-end gap-2 shrink-0">
         <button
           onClick={onOpen}
-          aria-label={`Open ${bookmark.title}`}
+          aria-label={`Open ${bookmark.title}${bookmark.videoTitle ? `, from ${bookmark.videoTitle}` : ""}`}
           className="ds-btn-secondary"
         >
           Open <span aria-hidden="true">→</span>
         </button>
         <button
+          id={`bm-remove-${bookmark.id}`}
           onClick={onRemove}
           aria-label={`Remove ${bookmark.title} from bookmarks`}
           className="ds-btn-text"

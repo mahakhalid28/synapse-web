@@ -115,16 +115,17 @@ export default function Home({
             <button
               type="button"
               onClick={resumeContinueLecture}
-              aria-label={`Continue learning: ${continueLecture.title}. Last opened: ${continueLecture.lastMoment}${continueLecture.timestamp ? ` at ${continueLecture.timestamp}` : ""}.`}
               className="mb-8 block w-full text-left px-3.5 py-2.5 bg-surface-muted border border-border-strong/70 rounded-radius-md hover:border-accent outline-none transition-colors focus-ring"
             >
-              <span aria-hidden="true" className="block text-[13px] text-text-muted mb-1">
-                Continue learning
+              {/* The visible text is the accessible name (so it always
+                  contains what is shown); sr-only separators keep it readable. */}
+              <span className="block text-[13px] text-text-muted mb-1">
+                Continue learning<span className="sr-only">:</span>
               </span>
-              <span aria-hidden="true" className="block text-[14px] font-medium text-text-primary">
-                {continueLecture.title}
+              <span className="block text-[14px] font-medium text-text-primary">
+                {continueLecture.title}<span className="sr-only">.</span>
               </span>
-              <span aria-hidden="true" className="mt-1 block text-[13px] text-text-secondary">
+              <span className="mt-1 block text-[13px] text-text-secondary">
                 Last opened: {continueLecture.lastMoment}
                 {continueLecture.timestamp ? ` at ${continueLecture.timestamp}` : ""}
               </span>

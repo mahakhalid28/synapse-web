@@ -124,7 +124,7 @@ export default function Timeline({
           {/* Breadcrumb */}
           <div className="text-[14px] font-medium text-text-secondary mb-7">
             Home
-            <span className="mx-2 text-text-muted">›</span>
+            <span aria-hidden="true" className="mx-2 text-text-muted">›</span>
             <span className="text-text-primary">{data.videoTitle}</span>
           </div>
 
@@ -164,8 +164,10 @@ export default function Timeline({
               </div>
 
               {/* Stat pills — neutral (icon + text), never color-coded by
-              category; "All" has no icon since it isn't a category. */}
-              <div className="flex flex-wrap gap-2">
+              category; "All" has no icon since it isn't a category. Hidden
+              from screen readers: the filter buttons below carry the same
+              counts, so reading both was pure repetition. */}
+              <div aria-hidden="true" className="flex flex-wrap gap-2">
                 <span className="ds-chip">
                   <span className="text-text-secondary">{counts.all}<span className="sr-only"> </span></span>
                   <span className="text-text-muted">All</span>
@@ -361,8 +363,7 @@ function PointRow({ point, isSelected, onClick }) {
   return (
     <button
       onClick={onClick}
-      aria-current={isSelected ? "true" : undefined}
-      aria-label={`${point.title}, ${point.category}, at ${point.timestamp}`}
+      aria-label={`${point.title}, ${point.category}, at ${point.timestamp}${isSelected ? ", selected" : ""}`}
       className={
         "w-full flex items-center gap-4 px-4 py-3 rounded-radius-md text-left transition-colors border focus-ring " +
         (isSelected

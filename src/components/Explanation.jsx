@@ -77,6 +77,9 @@ function computeFocusTransform(region) {
   return `scale(${scale}) translate(${translateX}%, ${translateY}%)`;
 }
 
+// YT.PlayerState codes -> the names used by playerState below.
+const PLAYER_STATE_NAMES = { 0: "ended", 1: "playing", 2: "paused", 3: "buffering" };
+
 // Single source for the on-page list and the spoken version (Alt+K).
 const RATES = [0.75, 1, 1.25, 1.5, 2];
 
@@ -149,6 +152,43 @@ export default function Explanation({
     }, 60);
   };
   useEffect(() => () => clearTimeout(announceTimerRef.current), []);
+
+  // "Playing." / "Paused." / "Lecture resumed." must only be spoken once the
+  // YouTube player has actually reached that state, never on the keypress
+  // that merely asked for it. A command registers what it expects here; the
+  // player's onStateChange (below) confirms it. If the player never gets
+  // there, the learner is told so instead of hearing a state that isn't true.
+  const expectedStateRef = useRef(null); // { target, okMsg, timer }
+  const expectPlayerState = (target, okMsg, failMsg) => {
+    const current = PLAYER_STATE_NAMES[playerRef.current?.getPlayerState?.()];
+    if (current === target) {
+      announce(okMsg);
+      return;
+    }
+    clearTimeout(expectedStateRef.current?.timer);
+    expectedStateRef.current = {
+      target,
+      okMsg,
+      timer: setTimeout(() => {
+        expectedStateRef.current = null;
+        announce(failMsg);
+      }, 5000),
+    };
+  };
+  // Re-pointed every render so the player callback (bound once per video)
+  // always reaches the current announce().
+  const confirmPlayerStateRef = useRef(() => {});
+  useEffect(() => {
+    confirmPlayerStateRef.current = (name) => {
+      const exp = expectedStateRef.current;
+      if (!exp || exp.target !== name) return;
+      clearTimeout(exp.timer);
+      expectedStateRef.current = null;
+      announce(exp.okMsg);
+    };
+  });
+  useEffect(() => () => clearTimeout(expectedStateRef.current?.timer), []);
+
   const [activePointId, setActivePointId] = useState(pointId);
   // Explicit user selection, or the first point once points have loaded, if
   // nothing's been chosen yet (arriving straight from Home rather than via
@@ -346,8 +386,14 @@ export default function Explanation({
           } catch {
             // storage unavailable — skip the one-time hint
           }
+          // Names the moment on screen too — the heading changes from
+          // "Preparing your lecture" without any other spoken cue.
+          const startIdx = Math.max(
+            0,
+            result.points.findIndex((p) => p.id === pointId),
+          );
           announce(
-            `Lecture ready. ${n} moment${n === 1 ? "" : "s"} found.${intro}`,
+            `Lecture ready. ${n} moment${n === 1 ? "" : "s"} found. Showing moment ${startIdx + 1}: ${result.points[startIdx].title}.${intro}`,
           );
         }
         setVideoTitle(result.videoTitle || "");
@@ -357,7 +403,7 @@ export default function Explanation({
         setVideoAuthor(result.author || "");
       })
       .catch((err) => console.error("Failed to load points:", err));
-  }, [jobId, videoId, isProcessing, processingError]);
+  }, [jobId, videoId, pointId, isProcessing, processingError]);
 
   // Initialize the real YouTube player once the API is loaded and the
   // container is in the DOM. Kept alive for the life of this videoId —
@@ -383,10 +429,9 @@ export default function Explanation({
           onStateChange: (e) => {
             const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
             if (e.data === YT_PLAYING) setPauseOwner(null);
-            setPlayerState(
-              { 0: "ended", 1: "playing", 2: "paused", 3: "buffering" }[e.data] ??
-                "unstarted",
-            );
+            const name = PLAYER_STATE_NAMES[e.data] ?? "unstarted";
+            setPlayerState(name);
+            confirmPlayerStateRef.current(name);
           },
         },
       });
@@ -400,6 +445,22 @@ export default function Explanation({
       player?.destroy?.();
     };
   }, [videoId]);
+
+  // Opened on a specific moment (Timeline, Library, Bookmarks): start the
+  // video there instead of at 0:00, so what plays matches the explanation on
+  // screen. Cued, not played — the learner still presses Play.
+  const initialCueDoneRef = useRef(false);
+  useEffect(() => {
+    if (initialCueDoneRef.current || !playerReady || !pointId) return;
+    const target = allPoints.find((p) => p.id === pointId);
+    if (!target) return;
+    initialCueDoneRef.current = true;
+    triggeredPointIdsRef.current.add(target.id);
+    playerRef.current?.cueVideoById?.({
+      videoId,
+      startSeconds: parseTimestampToSeconds(target.timestamp),
+    });
+  }, [playerReady, allPoints, pointId, videoId]);
 
   // While the video is playing and nothing owns the pause, watch for the
   // next untriggered intervention point's timestamp and auto-pause there.
@@ -428,8 +489,9 @@ export default function Explanation({
           // The one announcement for this event (the visible status line is
           // deliberately not a live region) — names the moment so the
           // learner knows what changed without hunting for the heading.
+          const n = allPoints.findIndex((p) => p.id === point.id) + 1;
           announce(
-            `Paused at ${point.timestamp}: ${point.title}. The explanation is below. Use the Listen button to hear it.`,
+            `Paused at moment ${n} of ${allPoints.length}, ${point.timestamp}. ${capitalize(point.category)}: ${point.title}. The explanation is below; use Listen to hear it.`,
           );
           focusExplanationStart();
           break;
@@ -522,7 +584,12 @@ export default function Explanation({
       // read via the ref since this listener isn't re-bound on every
       // pauseOwner change (see pauseOwnerRef above).
       if (pauseOwnerRef.current === "intervention") {
-        announce("Explanation finished. Resuming lecture.");
+        // Said only once the player really is playing again.
+        expectPlayerState(
+          "playing",
+          "Explanation finished. Lecture resumed.",
+          "Explanation finished, but the lecture did not resume. Press Resume lecture.",
+        );
         playerRef.current?.playVideo?.();
         setPauseOwner(null);
       }
@@ -569,7 +636,7 @@ export default function Explanation({
     if (point) {
       const idx = allPoints.findIndex((p) => p.id === id);
       announce(
-        `Moment ${idx + 1} of ${allPoints.length}: ${point.title}, at ${point.timestamp}. Video paused. The explanation is below. Use the Listen button to hear it.`,
+        `Moment ${idx + 1} of ${allPoints.length}, at ${point.timestamp}. ${capitalize(point.category)}: ${point.title}.${isLecturePlaying ? " Video paused." : ""} The explanation is below.`,
       );
       focusExplanationStart();
     }
@@ -584,12 +651,16 @@ export default function Explanation({
     const player = playerRef.current;
     if (!player) return;
     if (playerState === "playing" || playerState === "buffering") {
+      expectPlayerState("paused", "Paused.", "The lecture did not pause.");
       player.pauseVideo?.();
       setPauseOwner("user");
-      announce("Paused.");
     } else {
+      expectPlayerState(
+        "playing",
+        "Playing.",
+        "The lecture did not start. Press Play lecture to try again.",
+      );
       handleResumeVideo();
-      announce("Playing.");
     }
   };
 
@@ -681,6 +752,18 @@ export default function Explanation({
     exportToAudio(explanation, activePoint);
   };
 
+  // The layout changes substantially; the toggle's own "pressed" says which
+  // button, this says what it did.
+  const switchPresentationMode = (next) => {
+    if (next === presentationMode) return;
+    setPresentationMode(next);
+    announce(
+      next === "study"
+        ? "Study mode on. The lecture video is now shown."
+        : "Accessibility mode on. The video is hidden; the lecture audio still plays.",
+    );
+  };
+
   // Standard WAI-ARIA tabs keyboard pattern (automatic activation): arrow
   // keys both move focus and select, Home/End jump to the ends.
   // VISUAL_TAB_ORDER itself is declared further down (it depends on
@@ -729,15 +812,20 @@ export default function Explanation({
     setAskLoading(true);
     setAskAnswer(null);
     announce("Getting an answer.");
-    mockAskAboutVisual(trimmed, activePoint).then((answer) => {
-      setAskAnswer(answer);
-      setAskLoading(false);
-      announce("Answer ready.");
-      // Focus was on the control the learner just pressed; move it to the
-      // answer so it is read and focus is never left stranded. Deferred a
-      // tick so the answer node exists.
-      setTimeout(() => askAnswerRef.current?.focus(), 150);
-    });
+    mockAskAboutVisual(trimmed, activePoint)
+      .then((answer) => {
+        setAskAnswer(answer);
+        setAskLoading(false);
+        announce("Answer ready.");
+        // Focus was on the control the learner just pressed; move it to the
+        // answer so it is read and focus is never left stranded. Deferred a
+        // tick so the answer node exists.
+        setTimeout(() => askAnswerRef.current?.focus(), 150);
+      })
+      .catch(() => {
+        setAskLoading(false);
+        announce("Sorry, there was no answer. Your question is still in the box; press Ask to try again.");
+      });
   };
 
   // ---- Derived data --------------------------------------------------------
@@ -801,9 +889,13 @@ export default function Explanation({
   const focusRegion = activePoint.focusRegion ?? null;
 
   // Save to library once both explanation AND point metadata are ready.
+  // The explanation can arrive before the moment list does, when activePoint
+  // is still the "Loading your lecture" placeholder — saving then wrote a
+  // nameless entry to the Library, so wait for the real point.
+  const hasPointDetails = allPoints.some((p) => p.id === effectiveActivePointId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!explanation || !activePoint) return;
+    if (!explanation || !hasPointDetails) return;
     saveToLibrary({
       id: `${videoId}-${effectiveActivePointId}`,
       pointId: effectiveActivePointId,
@@ -817,7 +909,11 @@ export default function Explanation({
       explanation,
       savedAt: Date.now(),
     });
-  }, [explanation, activePoint?.id]); // stable: fires when explanation loads for a given point
+  }, [explanation, activePoint?.id, hasPointDetails]); // fires when explanation + real point details are both ready
+
+  useEffect(() => {
+    document.title = `${activePoint.title} – Synapse`;
+  }, [activePoint.title]);
 
   // Contents panel order — chronological across all points regardless of
   // category, not grouped by category.
@@ -1118,7 +1214,7 @@ export default function Explanation({
               <button
                 type="button"
                 aria-pressed={presentationMode === "accessibility"}
-                onClick={() => setPresentationMode("accessibility")}
+                onClick={() => switchPresentationMode("accessibility")}
                 className={
                   "px-3.5 py-2 text-[14px] transition-colors focus-ring " +
                   (presentationMode === "accessibility"
@@ -1131,7 +1227,7 @@ export default function Explanation({
               <button
                 type="button"
                 aria-pressed={presentationMode === "study"}
-                onClick={() => setPresentationMode("study")}
+                onClick={() => switchPresentationMode("study")}
                 className={
                   "px-3.5 py-2 text-[14px] border-l border-border-strong transition-colors focus-ring " +
                   (presentationMode === "study"
@@ -1712,11 +1808,15 @@ export default function Explanation({
                     pauseOwner === "intervention" && (
                       <button
                         onClick={() => {
+                          expectPlayerState(
+                            "playing",
+                            "Playing.",
+                            "The lecture did not resume. Press Resume video to try again.",
+                          );
                           handleResumeVideo();
                           // This button unmounts as the pause is released —
                           // hand focus to Listen rather than dropping it.
                           listenBtnRef.current?.focus();
-                          announce("Playing.");
                         }}
                         className="ds-btn-primary shrink-0"
                       >
@@ -1730,13 +1830,17 @@ export default function Explanation({
               buttons) than the Listen/Pause + Resume video controls above,
               which are the primary learning actions on this screen. */}
               <div className="flex flex-wrap gap-x-5 gap-y-2 mt-5">
+                {/* aria-pressed (with a constant name) so a screen reader says
+                "pressed" / "not pressed" on activation — the old text swap
+                to "Bookmarked" was silent. */}
                 <button
                   onClick={handleBookmark}
                   disabled={!explanation}
+                  aria-pressed={bookmarked}
                   className="ds-btn-text disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <span aria-hidden="true">{bookmarked ? "★" : "❏"}</span>
-                  {bookmarked ? "Bookmarked" : "Bookmark"}
+                  Bookmark
                 </button>
                 <button
                   onClick={handleExportPDF}

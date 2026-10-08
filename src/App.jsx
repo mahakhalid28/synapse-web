@@ -29,12 +29,13 @@ function App() {
   // Skipped on the very first render so the skip link stays first in tab
   // order for a first-time visitor. Timeline renders its <h1> only after its
   // data loads, so it focuses it itself (see Timeline.jsx).
-  const isFirstScreenRef = useRef(true);
+  // Compares against the screen last handled rather than flipping a "first
+  // run" flag: React StrictMode (dev) runs this effect twice on mount, and a
+  // flag let the second run steal focus to the H1 on cold load.
+  const handledScreenRef = useRef(screen);
   useEffect(() => {
-    if (isFirstScreenRef.current) {
-      isFirstScreenRef.current = false;
-      return;
-    }
+    if (handledScreenRef.current === screen) return;
+    handledScreenRef.current = screen;
     if (screen === "timeline") return;
     const h1 = document.querySelector("main h1");
     if (h1) {
@@ -42,6 +43,19 @@ function App() {
       h1.focus({ preventScroll: true });
     }
   }, [screen]);
+
+  // Window/tab title per screen (what a screen reader says on alt-tab and
+  // NVDA+T). The lecture screen sets its own, naming the current moment.
+  useEffect(() => {
+    const titles = {
+      home: "Start a study session",
+      subject: exploreSubject ? `${exploreSubject} lectures` : "Lectures",
+      timeline: "Lecture timeline",
+      bookmarks: "Bookmarks",
+      library: "My Library",
+    };
+    if (titles[screen]) document.title = `${titles[screen]} – Synapse`;
+  }, [screen, exploreSubject]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
