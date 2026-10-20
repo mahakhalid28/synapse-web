@@ -1,0 +1,37 @@
+Manual screen-reader test guide (NVDA)
+Setup: Run npm run electron:dev and start NVDA. With USE_MOCK = true, search results use a placeholder video, and moments auto-pause at 0:10 and 0:14. Click the Synapse window once, then use only the keyboard.
+
+1. Launch and Home
+Press Tab once, then Enter on "Skip to main content". NVDA should say "Start a study session, heading".
+Press Alt+S. You should hear "Lecture link or search, edit".
+Type neural network and press Enter. You should hear "Searching… 2 lectures found. Search results, heading level 3".
+Press Tab and then Enter on a result. You should hear "Selected … Start learning button is ready", and focus returns to the field.
+Press Tab (Start learning) and then Enter. You should hear "Lecture ready. 6 moments found. Showing moment 1…".
+2. Lecture screen (Accessibility Mode is the default)
+Press Tab until you hear "Play lecture". Press Enter. You should hear "Playing." once the video starts.
+Wait about 10 seconds. You should hear "Paused at moment 1 of 6, 0:10 … The explanation is below". Focus should land on the "Explanation" heading.
+Press the Down arrow a few times to read the explanation, visual information and key insight.
+Press Alt+L (or Tab to Listen, then Enter). You should hear "Pause explanation audio".
+Let the audio finish. You should hear "Explanation finished. Lecture resumed.", and the next moment pauses a few seconds later.
+3. Navigation and playback
+Press Alt+N (Next). You should hear "Moment 3 of 6, at 1:30. Chart: …".
+Press Alt+B (Previous). You should hear the previous moment announced.
+Press Alt+P. You should hear "Playing." or "Paused.", matching what the video actually does.
+Press Alt+K to hear the list of shortcuts.
+4. Bookmark, Ask and mode switch
+Tab to Bookmark and press Enter. You should hear "pressed". Press it again to hear "not pressed".
+Tab to "Ask a question about this moment" and press Enter. Tab to "Explain the main trend" and press Enter. You should hear "Getting an answer. Answer ready." and then the answer read aloud, with focus on it.
+Tab to Study mode and press Enter. You should hear "pressed" and "Study mode on. The lecture video is now shown."
+5. Other screens
+In Study mode, Tab to View full timeline and press Enter. Tab to a row and press Enter. You should hear "…, selected". Tab to "Open explanation" and press Enter.
+Open Library from the sidebar. Tab to Remove and press Enter. You should hear "Removed … 2 left.", and focus should stay on the next card's Remove button.
+Open Bookmarks and repeat the removal. The sidebar should read "Bookmarks, N saved" and update live.
+Tab to Settings and press Enter. Choose a theme with Enter, or press Escape to close. Focus should return to Settings.
+What counts as a failure
+Silence after a key press that should speak.
+NVDA says "Playing." while the video is actually paused, or the reverse.
+Focus drops to the top of the page or the document body.
+A button that says only "button", or the same name on several buttons.
+A Library entry named "Loading your lecture".
+
+

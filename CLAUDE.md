@@ -48,7 +48,7 @@ replacement).
 ## App.jsx — screens & routing
 
 Single `screen` state string: `"home" | "subject" | "timeline" |
-"explanation" | "bookmarks" | "library"`. No more `"processing"` screen —
+"explanation" | "bookmarks" | "library" | "notes"`. No more `"processing"` screen —
 it was removed; `handleProcess()` now goes straight to `"explanation"` with
 an in-flight `processVideo()` promise passed down as a prop, and
 Explanation.jsx shows an inline "Preparing your lecture… N%" banner itself
@@ -57,6 +57,68 @@ Explanation.jsx shows an inline "Preparing your lecture… N%" banner itself
 `hasLeftHome` state exists solely so Home's H1 only grabs focus on *return*
 navigation, never on the app's very first cold load (which would otherwise
 skip the skip-link/sidebar out of tab order for first-time visitors).
+
+## Voice Notes (record a personal note at a lecture moment)
+
+Audio is stored locally only (IndexedDB), never sent anywhere, never in
+localStorage.
+
+- `src/lib/notesStore.js` — IndexedDB store (`notes` + `audio`, one atomic
+  transaction per save/delete; `add()` only, duplicates rejected). Tests use
+  the in-memory fake in `src/test/fakeIndexedDb.js`, NOT real IndexedDB.
+- `src/hooks/useVoiceRecorder.js` — the recorder. Order: read the lecture time
+  → pause lecture + TTS → announce → open mic during a 1.5 s settle → tone →
+  record. 5-minute limit. Only an explicit stop (or the limit) saves; leaving
+  the screen or losing the mic HOLDS a draft for Save/Discard. Never resumes
+  anything.
+- `src/components/VoiceNotes.jsx` — per-lecture panel, mounted in
+  Explanation.jsx after `<AskLecture>`. Owns the recorder and the unsaved-note
+  prompt; talks to Explanation through `voiceControlRef` (`toggle`,
+  `lectureStarted`, `requestLeave`).
+- `src/components/NotesScreen.jsx` — global screen (`screen === "notes"`,
+  Sidebar "Voice notes", no count). Opening a note goes to its lecture cued
+  and PAUSED at the note's time via the `startSeconds` prop of Explanation.
+- Shared: `VoiceNoteList.jsx` (play / open / inline delete confirmation),
+  `useNotePlayer.js`, `useAnnouncer.js`, `src/lib/voiceNoteText.js`.
+
+Explanation.jsx rules for voice notes: `pauseLectureAudio()` pauses the video
+and TTS and sets `pauseOwner = "user"` — that is what stops the TTS "ended"
+handler and the 300 ms watcher from resuming/pausing anything. Alt+M toggles
+recording. Playing the lecture or TTS while recording is blocked
+(`lectureStarted()` returns true) and re-pauses. Every way out of the screen
+goes through `leaveScreen()`.
+
+Electron: `electron/permissions.cjs` is a deny-by-default allowlist (audio-only
+microphone from the main frame, fullscreen, persistent-storage). Dev
+(`localhost:5173`) and the packaged app (`file://`) are different origins, so
+their IndexedDB databases should be SEPARATE (expected, not tested against one
+shared profile).
+
+Packaged app (`file://`): YouTube refuses to play an embed on a page that sends
+no Referer ("Error 153"), so `electron/youtubeReferer.cjs` adds
+`Referer: https://synapse.invalid/` to the YouTube player's *frame* request only,
+only when it has no Referer, only in the packaged branch of `electron.cjs`
+(dev has a real `http://localhost` Referer). `.invalid` is a reserved TLD. It
+relies on YouTube's behaviour. The packaged `file://` page is inferred to
+depend on `webSecurity: false` for its module script (not tested by turning it
+off). There is no `build` block in package.json yet; packaged builds so far
+were scratch UNPACKED builds with the electron-builder config kept outside the
+repo. Installer, signing and icon: not tried.
+
+Voice Notes validation status (details and the NOT TESTED list: `docs/VOICE_NOTES_VALIDATION.md`;
+labels AUTOMATED / SCRIPTED-REAL / HUMAN / NOT TESTED are defined there):
+- AUTOMATED: 440 tests pass (jsdom + fakes; they check logic, not real hardware).
+- SCRIPTED-REAL: scripts drove real Electron, including the unpacked packaged
+  app with the real YouTube player and mock lecture data — with Chromium's FAKE
+  microphone device. Key events were injected via the DevTools protocol.
+- HUMAN (reported by the user, 2026-10-19; Windows/NVDA versions, app mode and
+  steps NOT recorded, including whether Alt+M itself was used): a real Windows
+  microphone works, and NVDA works. Never fill in the missing details.
+- NOT TESTED: Windows microphone privacy switch off (real), no microphone device,
+  microphone busy, a real 5-minute recording, installer/signing/icon, and Ask in
+  the packaged app against the real backend (only a local stand-in server was
+  used). Do not describe any of these as verified.
+- Alt+M's exact behaviour is documented in `docs/KEYBOARD_SHORTCUTS.md`.
 
 ## Home.jsx
 
