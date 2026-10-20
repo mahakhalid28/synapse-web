@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Microphone recording spike (Phase 0)</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 16px 24px 48px; background: #F7F4EC; color: #1a1a1a; max-width: 62rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+  button { font: inherit; padding: 8px 14px; margin: 0 8px 8px 0; border: 2px solid #1a1a1a; border-radius: 6px; background: #fff; cursor: pointer; }
+  button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, summary:focus-visible { outline: 3px solid #0b57d0; outline-offset: 2px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; }
+  th, td { border: 1px solid #888; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  .PASS { font-weight: 700; color: #0a6b2d; }
+  .FAIL { font-weight: 700; color: #b00020; }
+  .NOT-TESTED { font-weight: 700; color: #6b5200; }
+  #status { padding: 8px 10px; border: 2px solid #1a1a1a; background: #fff; min-height: 1.5em; margin: 8px 0; }
+  #meter { width: 100%; max-width: 30rem; height: 14px; }
+  pre { background: #fff; border: 1px solid #888; padding: 8px; white-space: pre-wrap; word-break: break-word; }
+  .note { font-size: 0.92rem; color: #333; }
+</style>
+</head>
+<body>
+<main>
+<h1>Microphone recording spike (Phase 0)</h1>
+<p class="note">Temporary test page. Real microphone only: nothing here is simulated. Results marked NOT TESTED need a human or a different setup.</p>
+
+<h2>Test configuration and environment</h2>
+<table aria-label="Environment">
+  <tbody id="env"></tbody>
+</table>
+
+<h2>Controls</h2>
+<div role="group" aria-label="Microphone test controls">
+  <button id="btn-request" type="button">Request microphone access</button>
+  <button id="btn-record" type="button">Record for 5 seconds</button>
+  <button id="btn-stop" type="button" aria-disabled="true">Stop recording early</button>
+  <button id="btn-play" type="button" aria-disabled="true">Play back recording</button>
+  <button id="btn-clear" type="button">Clear recording</button>
+</div>
+<div role="group" aria-label="Human confirmation of playback">
+  <button id="btn-heard" type="button" aria-disabled="true">I heard my voice on playback</button>
+  <button id="btn-notheard" type="button" aria-disabled="true">I did NOT hear my voice</button>
+</div>
+<p class="note">Speak continuously for the whole five seconds. Keep volume low or use headphones.</p>
+<div id="status" role="status" aria-live="polite" aria-atomic="true">Ready. Nothing has been requested yet.</div>
+<label for="meter">Live input level (visual only)</label><br>
+<meter id="meter" min="0" max="1" value="0" aria-hidden="true"></meter>
+
+<h2>Last recording</h2>
+<table aria-label="Recording results">
+  <tbody id="rec"></tbody>
+</table>
+<p><audio id="player" controls aria-label="Recorded audio playback"></audio></p>
+
+<h2>Error details</h2>
+<pre id="errors" aria-label="Error details">None.</pre>
+
+<h2>Pass/fail checklist</h2>
+<p class="note">Only items the page can genuinely verify are PASS or FAIL. Everything else stays NOT TESTED.</p>
+<table aria-label="Checklist">
+  <thead><tr><th scope="col">Check</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>
+  <tbody id="checks"></tbody>
+</table>
+
+<h2>Manual tests (NOT TESTED until a human does them)</h2>
+<details>
+  <summary>NVDA: can the whole page be used without sight?</summary>
+  <ol>
+    <li>Start NVDA, then launch this page. Tab through every button; each must be announced with its label.</li>
+    <li>Press "Request microphone access" with Enter or Space. Confirm NVDA reads the status message.</li>
+    <li>Press "Record for 5 seconds"; confirm NVDA announces start and stop. Check that the level meter is not read out.</li>
+    <li>Press "Play back recording" and confirm it plays while NVDA stays responsive. Then answer the "I heard / did not hear" buttons.</li>
+  </ol>
+</details>
+<details>
+  <summary>Windows privacy switch OFF (microphone access blocked)</summary>
+  <ol>
+    <li>Do this yourself: Settings, Privacy and security, Microphone, turn OFF "Let desktop apps access your microphone". Do not use scripts.</li>
+    <li>Run with --policy=allow-audio, press "Request microphone access" and write down the exact error name and message.</li>
+    <li>Turn the setting back ON afterwards.</li>
+  </ol>
+</details>
+<details>
+  <summary>No microphone available</summary>
+  <ol>
+    <li>Disable the capture device in Device Manager, or unplug the USB microphone (do this yourself).</li>
+    <li>Reload with --policy=allow-audio and press "Request microphone access". Expected name to record: NotFoundError.</li>
+    <li>Re-enable the device afterwards.</li>
+  </ol>
+</details>
+<details>
+  <summary>Device busy (another app holds the microphone)</summary>
+  <ol>
+    <li>Start an exclusive-mode recorder in another app, then press "Request microphone access". Write down the error name (often NotReadableError).</li>
+  </ol>
+</details>
+<details>
+  <summary>Packaged app (file:// in a built app)</summary>
+  <ol>
+    <li>Requires a build with the output directory moved off Vite's dist folder, which needs project configuration. NOT run by this spike. The --origin=file mode here is only a close proxy.</li>
+  </ol>
+</details>
+</main>
+
+<script>
+"use strict";
+
+var params = new URLSearchParams(location.search);
+var POLICY = params.get("policy") || "unspecified";
+var ORIGIN = params.get("origin") || "unspecified";
+var RECORD_MS = 5000;
+// Thresholds for "usable signal": peak above -40 dBFS and RMS above about -54 dBFS.
+var PEAK_MIN = 0.01;
+var RMS_MIN = 0.002;
+
+var state = {
+  recording: false,
+  stopEarly: false,
+  stream: null,
+  recorder: null,
+  audioCtx: null,
+  analyser: null,
+  meterTimer: null,
+  stopTimer: null,
+  chunks: [],
+  tStart: 0,
+  tStop: 0,
+  livePeak: 0,
+  blobUrl: null,
+  recordedBlob: null,
+  mimeTried: ""
+};
+
+var $ = function (id) { return document.getElementById(id); };
+var statusEl = $("status");
+
+function say(msg) { statusEl.textContent = msg; console.log(msg); }
+
+// ---------- checklist ----------
+var CHECKS = [
+  { id: "secure", label: "isSecureContext is true", state: "NOT TESTED", detail: "" },
+  { id: "mediaDevices", label: "navigator.mediaDevices.getUserMedia exists", state: "NOT TESTED", detail: "" },
+  { id: "recorderApi", label: "MediaRecorder exists and supports an audio type", state: "NOT TESTED", detail: "" },
+  { id: "device", label: "At least one audio input device is listed", state: "NOT TESTED", detail: "" },
+  { id: "gum", label: "getUserMedia result matches the policy", state: "NOT TESTED", detail: "Press Request microphone access." },
+  { id: "blob", label: "Recording produced a non-empty blob", state: "NOT TESTED", detail: "" },
+  { id: "duration", label: "Measured duration is about 5 s (4.0 to 6.5 s) for a full recording", state: "NOT TESTED", detail: "" },
+  { id: "signal", label: "Recorded audio contains a usable signal (decoded peak and RMS)", state: "NOT TESTED", detail: "" },
+  { id: "tracks", label: "Every microphone track is ended after recording", state: "NOT TESTED", detail: "" },
+  { id: "playback", label: "Playback started and reached the end", state: "NOT TESTED", detail: "" },
+  { id: "heard", label: "Human heard own voice on playback", state: "NOT TESTED", detail: "Needs a human answer." },
+  { id: "nvda", label: "NVDA usability", state: "NOT TESTED", detail: "Manual test; see steps above." },
+  { id: "privacy", label: "Windows privacy switch OFF behaviour", state: "NOT TESTED", detail: "Manual test; see steps above." },
+  { id: "nomic", label: "No microphone present behaviour", state: "NOT TESTED", detail: "Manual test; see steps above." },
+  { id: "busy", label: "Device busy behaviour", state: "NOT TESTED", detail: "Manual test; see steps above." },
+  { id: "packaged", label: "Packaged build behaviour", state: "NOT TESTED", detail: "Needs build configuration; not run." }
+];
+var RECORD_CHECKS = ["blob", "duration", "signal", "tracks", "playback", "heard"];
+
+function setCheck(id, st, detail) {
+  for (var i = 0; i < CHECKS.length; i++) {
+    if (CHECKS[i].id === id) {
+      CHECKS[i].state = st;
+      if (detail !== undefined) CHECKS[i].detail = detail;
+    }
+  }
+  renderChecks();
+}
+
+function renderChecks() {
+  var body = $("checks");
+  body.textContent = "";
+  CHECKS.forEach(function (c) {
+    var tr = document.createElement("tr");
+    var a = document.createElement("td"); a.textContent = c.label;
+    var b = document.createElement("td"); b.textContent = c.state; b.className = c.state.replace(" ", "-");
+    var d = document.createElement("td"); d.textContent = c.detail;
+    tr.appendChild(a); tr.appendChild(b); tr.appendChild(d);
+    body.appendChild(tr);
+  });
+}
+
+// ---------- generic table helpers ----------
+function fillRows(tbodyId, rows) {
+  var body = $(tbodyId);
+  body.textContent = "";
+  rows.forEach(function (r) {
+    var tr = document.createElement("tr");
+    var th = document.createElement("th"); th.scope = "row"; th.textContent = r[0];
+    var td = document.createElement("td"); td.textContent = r[1];
+    tr.appendChild(th); tr.appendChild(td);
+    body.appendChild(tr);
+  });
+}
+
+var errorLog = [];
+function logError(where, err) {
+  var name = err && err.name ? err.name : "(no name)";
+  var msg = err && err.message ? err.message : String(err);
+  errorLog.push(where + ": " + name + " | " + msg);
+  $("errors").textContent = errorLog.join("\n");
+  console.log("ERROR " + where + ": " + name + " | " + msg);
+}
+
+function setEnabled(id, on) { $(id).setAttribute("aria-disabled", on ? "false" : "true"); }
+function isDisabled(id) { return $(id).getAttribute("aria-disabled") === "true"; }
+
+// ---------- environment ----------
+var envInfo = {};
+function mimeSupport() {
+  var cands = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  var ok = [];
+  if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported) {
+    cands.forEach(function (m) { if (MediaRecorder.isTypeSupported(m)) ok.push(m); });
+  }
+  return ok;
+}
+
+async function refreshEnvironment() {
+  var ua = navigator.userAgent;
+  var el = (ua.match(/Electron\/([0-9.]+)/) || [])[1] || "not Electron";
+  var ch = (ua.match(/Chrome\/([0-9.]+)/) || [])[1] || "unknown";
+  var supported = mimeSupport();
+  envInfo.mime = supported[0] || "";
+
+  var devices = "enumerateDevices unavailable";
+  var inputs = [];
+  if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+    try {
+      var all = await navigator.mediaDevices.enumerateDevices();
+      inputs = all.filter(function (d) { return d.kind === "audioinput"; });
+      devices = inputs.length + " audio input(s): " + (inputs.map(function (d) { return d.label || "(label hidden until permission)"; }).join("; ") || "none");
+    } catch (e) { devices = "enumerateDevices failed"; logError("enumerateDevices", e); }
+  }
+
+  var perm = "permissions.query unavailable";
+  if (navigator.permissions && navigator.permissions.query) {
+    try { perm = (await navigator.permissions.query({ name: "microphone" })).state; }
+    catch (e) { perm = "query failed: " + (e && e.name); }
+  }
+
+  fillRows("env", [
+    ["Origin mode requested", ORIGIN],
+    ["Permission policy requested", POLICY],
+    ["Location", location.href.split("?")[0]],
+    ["Protocol", location.protocol],
+    ["isSecureContext", String(window.isSecureContext)],
+    ["Electron version", el],
+    ["Chromium version", ch],
+    ["navigator.mediaDevices", navigator.mediaDevices ? "present" : "MISSING"],
+    ["MediaRecorder", typeof MediaRecorder !== "undefined" ? "present" : "MISSING"],
+    ["Supported recorder types", supported.join(", ") || "none"],
+    ["Microphone devices", devices],
+    ["permissions.query microphone", perm]
+  ]);
+
+  setCheck("secure", window.isSecureContext ? "PASS" : "FAIL", "isSecureContext=" + window.isSecureContext + ", protocol=" + location.protocol);
+  var hasGum = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  setCheck("mediaDevices", hasGum ? "PASS" : "FAIL", hasGum ? "" : "getUserMedia missing");
+  var hasRec = typeof MediaRecorder !== "undefined" && supported.length > 0;
+  setCheck("recorderApi", hasRec ? "PASS" : "FAIL", supported.join(", ") || "no supported audio type");
+  setCheck("device", inputs.length > 0 ? "PASS" : "FAIL", inputs.length + " audio input(s)");
+}
+
+// ---------- microphone ----------
+function stopStream() {
+  var report = { count: 0, allEnded: true };
+  if (state.stream) {
+    state.stream.getTracks().forEach(function (t) {
+      report.count++;
+      t.stop();
+      if (t.readyState !== "ended") report.allEnded = false;
+    });
+    state.stream = null;
+  }
+  return report;
+}
+
+async function acquire() {
+  var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  state.stream = stream;
+  return stream;
+}
+
+function expectedErrorName() {
+  return POLICY === "deny" ? "NotAllowedError" : null;
+}
+
+function evaluateGum(ok, err) {
+  if (ok) {
+    if (POLICY === "deny") setCheck("gum", "FAIL", "Access was GRANTED although policy=deny. Do not trust the deny handler.");
+    else setCheck("gum", "PASS", "Granted under policy=" + POLICY + " (origin " + ORIGIN + ").");
+  } else {
+    var n = err && err.name;
+    if (POLICY === "deny" && n === "NotAllowedError") setCheck("gum", "PASS", "Denied as expected: NotAllowedError (denial surfaced, not bypassed).");
+    else setCheck("gum", "FAIL", "Error " + n + ": " + (err && err.message) + " under policy=" + POLICY + ". Record this name; see Error details.");
+  }
+}
+
+async function requestMic() {
+  if (isDisabled("btn-request") || state.recording) return;
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+    say("getUserMedia is not available in this context.");
+    return;
+  }
+  say("Requesting microphone access.");
+  try {
+    var s = await acquire();
+    var label = s.getAudioTracks()[0] ? s.getAudioTracks()[0].label : "(no track)";
+    var rep = stopStream();
+    evaluateGum(true);
+    setCheck("tracks", rep.allEnded ? "PASS" : "FAIL", "Request test: " + rep.count + " track(s) stopped; all ended=" + rep.allEnded);
+    say("Microphone access granted for: " + label + ". Tracks stopped again.");
+  } catch (e) {
+    logError("getUserMedia", e);
+    evaluateGum(false, e);
+    say("Microphone request failed: " + (e && e.name) + ". " + (e && e.message ? e.message : ""));
+  }
+  await refreshEnvironment();
+}
+
+// ---------- recording ----------
+function resetRecordingState() {
+  if (state.stopTimer) { clearTimeout(state.stopTimer); state.stopTimer = null; }
+  if (state.meterTimer) { clearInterval(state.meterTimer); state.meterTimer = null; }
+  if (state.audioCtx) { try { state.audioCtx.close(); } catch (e) {} state.audioCtx = null; }
+  state.analyser = null;
+  $("meter").value = 0;
+}
+
+function startMeter(stream) {
+  var AC = window.AudioContext || window.webkitAudioContext;
+  state.audioCtx = new AC();
+  var src = state.audioCtx.createMediaStreamSource(stream);
+  state.analyser = state.audioCtx.createAnalyser();
+  state.analyser.fftSize = 1024;
+  src.connect(state.analyser);
+  var buf = new Uint8Array(state.analyser.fftSize);
+  state.livePeak = 0;
+  state.meterTimer = setInterval(function () {
+    state.analyser.getByteTimeDomainData(buf);
+    var peak = 0;
+    for (var i = 0; i < buf.length; i++) {
+      var v = Math.abs((buf[i] - 128) / 128);
+      if (v > peak) peak = v;
+    }
+    if (peak > state.livePeak) state.livePeak = peak;
+    $("meter").value = peak;
+  }, 50);
+}
+
+async function startRecording() {
+  if (isDisabled("btn-record") || state.recording) return;
+  if (!envInfo.mime) { say("No supported MediaRecorder audio type; cannot record."); return; }
+  clearRecording(true);
+  say("Requesting microphone for recording.");
+  var stream;
+  try {
+    stream = await acquire();
+  } catch (e) {
+    logError("getUserMedia (record)", e);
+    evaluateGum(false, e);
+    say("Cannot record: " + (e && e.name) + ". " + (e && e.message ? e.message : ""));
+    return;
+  }
+  evaluateGum(true);
+  state.chunks = [];
+  state.stopEarly = false;
+  var rec;
+  try {
+    rec = new MediaRecorder(stream, { mimeType: envInfo.mime });
+  } catch (e) {
+    logError("MediaRecorder constructor", e);
+    stopStream();
+    say("MediaRecorder could not start: " + (e && e.name));
+    return;
+  }
+  state.recorder = rec;
+  rec.ondataavailable = function (ev) { if (ev.data && ev.data.size > 0) state.chunks.push(ev.data); };
+  rec.onerror = function (ev) { logError("MediaRecorder error", ev.error || ev); };
+  rec.onstart = function () {
+    state.tStart = performance.now();
+    state.recording = true;
+    setEnabled("btn-stop", true);
+    setEnabled("btn-record", false);
+    say("Recording started. Speak now. Five seconds.");
+  };
+  rec.onstop = function () { finishRecording(); };
+  startMeter(stream);
+  rec.start(250);
+  state.stopTimer = setTimeout(function () { stopRecording(false); }, RECORD_MS);
+}
+
+function stopRecording(early) {
+  if (!state.recording || !state.recorder) return;
+  if (state.recorder.state === "inactive") return;
+  state.stopEarly = !!early;
+  state.tStop = performance.now();
+  state.recorder.stop();
+}
+
+async function finishRecording() {
+  if (!state.tStop) state.tStop = performance.now();
+  state.recording = false;
+  var liveEnd = state.livePeak;
+  resetRecordingState();
+  var rep = stopStream();
+  setCheck("tracks", rep.allEnded && rep.count > 0 ? "PASS" : "FAIL", rep.count + " track(s) stopped; all ended=" + rep.allEnded);
+  setEnabled("btn-stop", false);
+  setEnabled("btn-record", true);
+
+  var blob = new Blob(state.chunks, { type: (state.recorder && state.recorder.mimeType) || envInfo.mime });
+  state.recordedBlob = blob;
+  var measured = (state.tStop - state.tStart) / 1000;
+  state.tStop = 0;
+
+  setCheck("blob", blob.size > 0 ? "PASS" : "FAIL", blob.size + " bytes");
+  if (state.stopEarly) setCheck("duration", "NOT TESTED", "Stopped early at " + measured.toFixed(2) + " s; run a full recording to test this.");
+  else setCheck("duration", measured >= 4.0 && measured <= 6.5 ? "PASS" : "FAIL", "Timer-measured " + measured.toFixed(2) + " s");
+
+  var decoded = "not decoded";
+  var peak = null, rms = null, decDur = null;
+  if (blob.size > 0) {
+    try {
+      var ab = await blob.arrayBuffer();
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var audio = await ctx.decodeAudioData(ab);
+      decDur = audio.duration;
+      var ch0 = audio.getChannelData(0);
+      var sum = 0, pk = 0;
+      for (var i = 0; i < ch0.length; i++) {
+        var a = Math.abs(ch0[i]);
+        if (a > pk) pk = a;
+        sum += ch0[i] * ch0[i];
+      }
+      peak = pk;
+      rms = Math.sqrt(sum / Math.max(1, ch0.length));
+      decoded = "ok, " + audio.sampleRate + " Hz, " + audio.numberOfChannels + " ch";
+      ctx.close();
+    } catch (e) {
+      logError("decodeAudioData", e);
+      decoded = "decode failed: " + (e && e.name);
+    }
+  }
+
+  var signalDetail;
+  if (peak === null) {
+    setCheck("signal", "FAIL", "Could not decode the recording, so signal could not be verified. Live peak was " + liveEnd.toFixed(3) + ".");
+    signalDetail = "unverified (decode failed)";
+  } else {
+    var ok = peak >= PEAK_MIN && rms >= RMS_MIN;
+    signalDetail = "peak " + peak.toFixed(4) + " (min " + PEAK_MIN + "), RMS " + rms.toFixed(5) + " (min " + RMS_MIN + "), live peak " + liveEnd.toFixed(3);
+    setCheck("signal", ok ? "PASS" : "FAIL", ok ? signalDetail : "SILENT OR TOO QUIET: " + signalDetail + ". The file exists but may not contain sound (muted/disabled mic).");
+  }
+
+  fillRows("rec", [
+    ["Blob size", blob.size + " bytes"],
+    ["MIME type", blob.type || "(empty)"],
+    ["Measured duration (timer)", measured.toFixed(2) + " s" + (state.stopEarly ? " (stopped early)" : "")],
+    ["Decoded duration", decDur === null ? "n/a" : decDur.toFixed(2) + " s"],
+    ["Decode status", decoded],
+    ["Signal check", signalDetail]
+  ]);
+
+  if (blob.size > 0) {
+    state.blobUrl = URL.createObjectURL(blob);
+    $("player").src = state.blobUrl;
+    setEnabled("btn-play", true);
+    setEnabled("btn-heard", true);
+    setEnabled("btn-notheard", true);
+  }
+  var verdict = peak === null ? "signal not verified" : (peak >= PEAK_MIN && rms >= RMS_MIN ? "signal detected" : "NO USABLE SIGNAL");
+  say("Recording stopped. " + blob.size + " bytes, " + measured.toFixed(1) + " seconds, " + verdict + ".");
+}
+
+// ---------- playback ----------
+function playBack() {
+  if (isDisabled("btn-play") || !state.blobUrl) return;
+  var p = $("player");
+  p.currentTime = 0;
+  p.play().then(function () { say("Playback started."); }).catch(function (e) {
+    logError("playback", e);
+    setCheck("playback", "FAIL", "play() rejected: " + (e && e.name));
+    say("Playback failed: " + (e && e.name));
+  });
+}
+$("player").addEventListener("ended", function () {
+  setCheck("playback", "PASS", "Reached the end. Note: element duration may report Infinity for MediaRecorder webm, which is why the page measures duration itself.");
+  say("Playback finished.");
+});
+$("player").addEventListener("error", function () {
+  var me = $("player").error;
+  setCheck("playback", "FAIL", "Audio element error code " + (me && me.code) + (me && me.message ? ": " + me.message : ""));
+});
+
+function heard(yes) {
+  if (isDisabled("btn-heard")) return;
+  setCheck("heard", yes ? "PASS" : "FAIL", yes ? "Human confirmed audible playback." : "Human reported NO audible voice. Compare with the signal check.");
+  say(yes ? "Recorded: you heard your voice." : "Recorded: you did not hear your voice.");
+}
+
+// ---------- clear / cleanup ----------
+function clearRecording(silent) {
+  if (state.recording) { stopRecording(true); }
+  var p = $("player");
+  try { p.pause(); } catch (e) {}
+  p.removeAttribute("src");
+  p.load();
+  if (state.blobUrl) { URL.revokeObjectURL(state.blobUrl); state.blobUrl = null; }
+  state.recordedBlob = null;
+  state.chunks = [];
+  RECORD_CHECKS.forEach(function (id) { setCheck(id, "NOT TESTED", id === "heard" ? "Needs a human answer." : ""); });
+  fillRows("rec", [["Status", "No recording."]]);
+  setEnabled("btn-play", false);
+  setEnabled("btn-heard", false);
+  setEnabled("btn-notheard", false);
+  if (!silent) { say("Recording cleared."); $("btn-request").focus(); }
+}
+
+function cleanup() {
+  if (state.recorder && state.recorder.state !== "inactive") {
+    try { state.recorder.onstop = null; state.recorder.stop(); } catch (e) {}
+  }
+  resetRecordingState();
+  stopStream();
+  if (state.blobUrl) { URL.revokeObjectURL(state.blobUrl); state.blobUrl = null; }
+}
+window.addEventListener("pagehide", cleanup);
+window.addEventListener("beforeunload", cleanup);
+
+// ---------- wiring ----------
+$("btn-request").addEventListener("click", requestMic);
+$("btn-record").addEventListener("click", startRecording);
+$("btn-stop").addEventListener("click", function () { if (!isDisabled("btn-stop")) stopRecording(true); });
+$("btn-play").addEventListener("click", playBack);
+$("btn-clear").addEventListener("click", function () { clearRecording(false); });
+$("btn-heard").addEventListener("click", function () { heard(true); });
+$("btn-notheard").addEventListener("click", function () { heard(false); });
+
+renderChecks();
+fillRows("rec", [["Status", "No recording yet."]]);
+refreshEnvironment().then(function () { say("Ready. Policy " + POLICY + ", origin " + ORIGIN + ". Press Request microphone access to begin."); });
+</script>
+</body>
+</html>

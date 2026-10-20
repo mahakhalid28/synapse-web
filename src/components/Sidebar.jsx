@@ -24,6 +24,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
     { key: "home",      label: "Home",      Icon: HomeIcon },
     { key: "library",   label: "Library",   Icon: LibraryIcon },
     { key: "bookmarks", label: "Bookmarks", Icon: BookmarkIcon, count: bookmarkCount },
+    { key: "notes",     label: "Voice notes", Icon: MicIcon },
   ];
 
   return (
@@ -113,6 +114,16 @@ function LibraryIcon() {
       <rect x="2.8" y="2.6" width="10.4" height="3" rx="0.6" />
       <rect x="2.8" y="6.5" width="10.4" height="3" rx="0.6" />
       <rect x="2.8" y="10.4" width="10.4" height="3" rx="0.6" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <rect x="6" y="2" width="4" height="7" rx="2" />
+      <path d="M3.8 7.6 a4.2 4.2 0 0 0 8.4 0" />
+      <path d="M8 11.8 V14" />
     </svg>
   );
 }
