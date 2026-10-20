@@ -16,6 +16,9 @@ import { loadYouTubeIframeAPI } from "../lib/youtubeIframeApi";
 import MomentMarker from "./MomentMarker";
 import ProvenanceLabel from "./ProvenanceLabel";
 import CategoryIcon from "./CategoryIcon";
+import AskLecture from "./AskLecture";
+import { formatTimestamp } from "../lib/askApi";
+import VoiceNotes from "./VoiceNotes";
 
 // "0:15", "1:22", "1:04:10" -> seconds. Same shape as the timestamps
 // getInterventionPoints() already returns (see Timeline.jsx's own copy of
@@ -36,6 +39,7 @@ function parseTimestampToSeconds(timestamp) {
    TODO: replace with a real POST to the ask-about-visual endpoint once the
    backend team adds it (see API Contract).
    ============================================================================ */
+// eslint-disable-next-line no-unused-vars -- no longer used; kept per request, see AskLecture.jsx
 function mockAskAboutVisual(question, point) {
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -90,6 +94,7 @@ const SHORTCUTS = [
   ["Alt+B", "Previous moment"],
   ["Alt+R", "Read: jump to the start of the explanation"],
   ["Alt+. / Alt+,", "Listen faster / slower"],
+  ["Alt+M", "Start or stop a voice note"],
   ["Alt+K", "Hear this list"],
 ];
 const SHORTCUTS_SPOKEN =
@@ -113,8 +118,10 @@ export default function Explanation({
   promise = null, // in-flight processVideo() promise when arriving straight from Home
   bookmarkData = null, // pre-populated when navigating from Bookmarks
   autoPlay = false, // auto-start audio when navigating from Library
-  onNavigate = () => {},
-  onOpenTimeline = () => {}, // jumps to Timeline for this same lecture, carrying the active point over
+  startSeconds = null, // cue the lecture at this time (opening a voice note); null = use the moment's own time
+  onNavigate: onNavigateRaw = () => {},
+  onOpenTimeline: onOpenTimelineRaw = () => {}, // jumps to Timeline for this same lecture, carrying the active point over
+  onStartPractice: onStartPracticeRaw = null, // opens Practice for this lecture; the button exists only when this is provided (feature flag)
 }) {
   const initialPoint = bookmarkData
     ? {
@@ -248,6 +255,10 @@ export default function Explanation({
   const [pauseOwner, setPauseOwner] = useState(null);
   const pauseOwnerRef = useRef(pauseOwner); // lets the TTS "ended" handler read the latest value without re-binding
   const triggeredPointIdsRef = useRef(new Set()); // intervention points already auto-triggered this session
+  // Set by <VoiceNotes>: toggle() for Alt+M, lectureStarted() when the lecture or
+  // TTS is started (blocks it while a note is being recorded), requestLeave(fn)
+  // to save or discard an unsaved recording before navigating away. Null until mounted.
+  const voiceControlRef = useRef(null);
 
   // "accessibility" (default) | "study" — purely a rendering choice. Every
   // piece of state/data-fetching/pauseOwner/timestamp-watching above is
@@ -284,14 +295,6 @@ export default function Explanation({
   // a CSS transform toggle on the video wrapper; touches nothing about
   // playback (see computeFocusTransform above for why/how).
   const [focusActive, setFocusActive] = useState(false);
-  // "Ask about this visual" — scoped strictly to the current intervention
-  // point, collapsed by default. Backend doesn't have this endpoint yet;
-  // see mockAskAboutVisual above.
-  const [askOpen, setAskOpen] = useState(false);
-  const [askQuery, setAskQuery] = useState("");
-  const [askAnswer, setAskAnswer] = useState(null);
-  const [askLoading, setAskLoading] = useState(false);
-  const askAnswerRef = useRef(null);
   const listenBtnRef = useRef(null);
   // Start of the explanation content. In Accessibility Mode, focus lands here
   // whenever a new moment becomes active (auto-pause, Next/Previous, jump) so
@@ -428,7 +431,12 @@ export default function Explanation({
           // playing, pause ownership is released either way.
           onStateChange: (e) => {
             const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
-            if (e.data === YT_PLAYING) setPauseOwner(null);
+            if (e.data === YT_PLAYING) {
+              setPauseOwner(null);
+              // While a voice note is being recorded this pauses the lecture again
+              // (and says why); otherwise it just stops a voice note that is playing.
+              voiceControlRef.current?.lectureStarted();
+            }
             const name = PLAYER_STATE_NAMES[e.data] ?? "unstarted";
             setPlayerState(name);
             confirmPlayerStateRef.current(name);
@@ -451,16 +459,27 @@ export default function Explanation({
   // screen. Cued, not played — the learner still presses Play.
   const initialCueDoneRef = useRef(false);
   useEffect(() => {
-    if (initialCueDoneRef.current || !playerReady || !pointId) return;
-    const target = allPoints.find((p) => p.id === pointId);
-    if (!target) return;
+    if (initialCueDoneRef.current || !playerReady) return;
+    if (!pointId && startSeconds == null) return;
+    // Wait for the moments to load, so the one at the cue point can be marked
+    // as already triggered (otherwise the first Play would auto-pause at once).
+    if (allPoints.length === 0) return;
+    const target = pointId ? allPoints.find((p) => p.id === pointId) : null;
+    if (startSeconds == null && !target) return;
     initialCueDoneRef.current = true;
-    triggeredPointIdsRef.current.add(target.id);
+    if (target) triggeredPointIdsRef.current.add(target.id);
+    if (startSeconds != null) {
+      for (const p of allPoints) {
+        if (Math.abs(parseTimestampToSeconds(p.timestamp) - startSeconds) <= 0.6) {
+          triggeredPointIdsRef.current.add(p.id);
+        }
+      }
+    }
     playerRef.current?.cueVideoById?.({
       videoId,
-      startSeconds: parseTimestampToSeconds(target.timestamp),
+      startSeconds: startSeconds ?? parseTimestampToSeconds(target.timestamp),
     });
-  }, [playerReady, allPoints, pointId, videoId]);
+  }, [playerReady, allPoints, pointId, videoId, startSeconds]);
 
   // While the video is playing and nothing owns the pause, watch for the
   // next untriggered intervention point's timestamp and auto-pause there.
@@ -518,12 +537,6 @@ export default function Explanation({
     setIsPlaying(false);
     setAudioUrl(null);
     setAudioLoading(true);
-    // The ask box's answer/query are specific to the point they were asked
-    // about — clear them on point change so a stale answer from a different
-    // visual never lingers. Leave askOpen as-is: if the student had the box
-    // open, keep it open while they browse, ready for a fresh question.
-    setAskAnswer(null);
-    setAskQuery("");
     // Focus belongs to this point's visual, not the lecture — a new point
     // (even one with no focusRegion) always starts back at the full frame.
     setFocusActive(false);
@@ -668,6 +681,8 @@ export default function Explanation({
   // the pause. If Synapse's explanation audio is still playing, stop it
   // first so it never overlaps the lecture audio once the video resumes.
   const handleResumeVideo = () => {
+    // Recording a voice note: the lecture stays paused (it would be recorded).
+    if (voiceControlRef.current?.lectureStarted()) return;
     if (pauseOwner === "intervention" && audioRef.current) {
       audioRef.current.pause();
       setIsPlaying(false);
@@ -683,6 +698,8 @@ export default function Explanation({
       audio.pause();
       setIsPlaying(false);
     } else {
+      // Same rule for Synapse's own TTS: not while a voice note is being recorded.
+      if (voiceControlRef.current?.lectureStarted()) return;
       if (audioDuration > 0 && currentTime >= audioDuration)
         audio.currentTime = 0;
       audio
@@ -803,30 +820,43 @@ export default function Explanation({
     announce(next ? "Showing focused view." : "Showing full frame.");
   };
 
-  // Quick actions and the custom input both funnel through here — same
-  // mock call either way, swapped for a real request once the backend has
-  // the ask-about-visual endpoint.
-  const handleAsk = (question) => {
-    const trimmed = question.trim();
-    if (!trimmed || askLoading) return;
-    setAskLoading(true);
-    setAskAnswer(null);
-    announce("Getting an answer.");
-    mockAskAboutVisual(trimmed, activePoint)
-      .then((answer) => {
-        setAskAnswer(answer);
-        setAskLoading(false);
-        announce("Answer ready.");
-        // Focus was on the control the learner just pressed; move it to the
-        // answer so it is read and focus is never left stranded. Deferred a
-        // tick so the answer node exists.
-        setTimeout(() => askAnswerRef.current?.focus(), 150);
-      })
-      .catch(() => {
-        setAskLoading(false);
-        announce("Sorry, there was no answer. Your question is still in the box; press Ask to try again.");
-      });
+  // "Where in the lecture" source buttons from <AskLecture>: seek the real
+  // player and hand the pause to the learner (they press Play when ready),
+  // the same ownership model as selecting a moment manually.
+  const handleAskSeek = (seconds) => {
+    const player = playerRef.current;
+    if (!player?.seekTo) {
+      announce("The lecture player isn't ready yet.");
+      return;
+    }
+    player.seekTo(seconds, true);
+    player.pauseVideo?.();
+    setPauseOwner("user");
+    announce(`Jumped to ${formatTimestamp(seconds)}. Lecture paused.`);
   };
+
+  // Voice notes: pause the lecture AND Synapse's TTS and hand the pause to the
+  // learner (owner "user"), so neither is ever resumed automatically, not even
+  // by the TTS "ended" handler, which only resumes an "intervention" pause.
+  const pauseLectureAudio = () => {
+    clearTimeout(expectedStateRef.current?.timer); // don't announce a stale "did not start"
+    expectedStateRef.current = null;
+    audioRef.current?.pause();
+    setIsPlaying(false);
+    playerRef.current?.pauseVideo?.();
+    setPauseOwner("user");
+  };
+
+  // Every way out of this screen goes through here, so an unsaved voice note
+  // gets a Save / Discard / Stay choice instead of being lost.
+  const leaveScreen = (go) => {
+    const control = voiceControlRef.current;
+    if (control) control.requestLeave(go);
+    else go();
+  };
+  const onNavigate = (key) => leaveScreen(() => onNavigateRaw(key));
+  const onOpenTimeline = (id) => leaveScreen(() => onOpenTimelineRaw(id));
+  const onStartPractice = () => leaveScreen(() => onStartPracticeRaw());
 
   // ---- Derived data --------------------------------------------------------
 
@@ -842,25 +872,6 @@ export default function Explanation({
     category: "diagram",
     timestamp: "",
   };
-
-  // Quick-action prompts for "Ask about this visual" — the comparison
-  // option only makes sense for categories that plausibly show more than
-  // one element (chart/graph); other categories get a generic alternative.
-  const canCompareElements =
-    activePoint.category === "chart" || activePoint.category === "graph";
-  // Study Mode keeps "visual" (the learner is looking at a frame).
-  // Accessibility Mode is non-visual — the learner is engaging with the
-  // lecture moment and its explanation, not inspecting a frame — so labels,
-  // placeholders, and the quick-action query text all say "moment" instead,
-  // consistently, so a screen reader never announces "visual" there.
-  const askNoun = presentationMode === "accessibility" ? "moment" : "visual";
-  const askQuickActions = [
-    { label: "Explain the main trend", query: `Explain the main trend in this ${askNoun}.` },
-    canCompareElements
-      ? { label: "Compare the two curves", query: `Compare the two curves shown in this ${askNoun}.` }
-      : { label: "Explain this differently", query: `Explain this ${askNoun} a different way.` },
-    { label: "Explain in simpler terms", query: "Explain this in simpler terms." },
-  ];
 
   // Factual-only rows for Structured View / Accessible visual information —
   // carried directly on the intervention object itself (per-point, from the
@@ -1000,6 +1011,13 @@ export default function Explanation({
       KeyR: () => explanationHeadingRef.current?.focus(),
       Period: () => stepRate(1),
       Comma: () => stepRate(-1),
+      KeyM: () => {
+        if (!voiceControlRef.current) {
+          announce("Voice notes aren't ready yet.");
+          return;
+        }
+        voiceControlRef.current.toggle();
+      },
       KeyK: () => announce(SHORTCUTS_SPOKEN),
     };
   });
@@ -1613,96 +1631,32 @@ export default function Explanation({
                   </>
                 )}
 
-                {/* Ask about this visual — scoped strictly to this
-                intervention point, not a general lecture chatbot. Collapsed
-                by default; backend endpoint doesn't exist yet (see
-                mockAskAboutVisual at the top of this file). */}
-                <div className="mt-7 pt-5 border-t border-border-subtle">
-                  <button
-                    type="button"
-                    onClick={() => setAskOpen((v) => !v)}
-                    aria-expanded={askOpen}
-                    className="ds-btn-text"
-                  >
-                    {askOpen
-                      ? "− Hide question box"
-                      : `+ Ask a question about this ${askNoun}`}
-                  </button>
+                {/* Lecture-wide question answering (see AskLecture.jsx).
+                The moment id is passed only while the learner has selected
+                or paused on a moment (pauseOwner set), never while the video
+                is merely playing past one. */}
+                <AskLecture
+                  videoId={videoId}
+                  getCurrentTime={() => playerRef.current?.getCurrentTime?.()}
+                  activeInterventionId={pauseOwner !== null ? effectiveActivePointId : null}
+                  onSeek={handleAskSeek}
+                  onSelectMoment={selectPointManually}
+                  knownMomentIds={allPoints.map((p) => p.id)}
+                />
 
-                  {askOpen && (
-                    <div className="mt-4">
-                      <div className="flex flex-wrap gap-2">
-                        {askQuickActions.map((qa) => (
-                          <button
-                            key={qa.label}
-                            type="button"
-                            onClick={() => handleAsk(qa.query)}
-                            aria-disabled={askLoading || undefined}
-                            className={
-                              "px-3 py-1.5 rounded-radius-sm border border-border-strong text-[14px] text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring " +
-                              (askLoading ? "opacity-40 cursor-not-allowed" : "")
-                            }
-                          >
-                            {qa.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex gap-2 mt-3">
-                        <input
-                          type="text"
-                          value={askQuery}
-                          onChange={(e) => setAskQuery(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleAsk(askQuery);
-                          }}
-                          placeholder={`Ask your own question about this ${askNoun}…`}
-                          aria-label={`Your question about this ${askNoun}`}
-                          className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-[16px] bg-surface border border-border-strong rounded-radius-sm text-text-primary placeholder:text-text-muted focus-ring"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleAsk(askQuery)}
-                          aria-disabled={askLoading || !askQuery.trim() || undefined}
-                          className={
-                            "ds-btn-secondary shrink-0 " +
-                            (askLoading || !askQuery.trim()
-                              ? "opacity-40 cursor-not-allowed"
-                              : "")
-                          }
-                        >
-                          Ask
-                        </button>
-                      </div>
-
-                      {askLoading && (
-                        <p className="mt-3 text-[14px] text-text-muted">
-                          Thinking…
-                        </p>
-                      )}
-
-                      {/* Normal (non-live) region — this is substantive
-                      content the student reads at their own pace, not a
-                      short status transition, so it must NOT be aria-live. */}
-                      {askAnswer && !askLoading && (
-                        <div
-                          ref={askAnswerRef}
-                          tabIndex={-1}
-                          role="group"
-                          aria-label="Answer"
-                          className="mt-3 p-3 bg-surface-muted rounded-radius-md text-[14px] text-text-primary leading-[1.6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
-                        >
-                          {askAnswer}
-                        </div>
-                      )}
-
-                      <p className="mt-3 text-[14px] text-text-muted">
-                        Scoped to this {askNoun} only — not a general lecture
-                        chatbot.
-                      </p>
-                    </div>
-                  )}
-                </div>
+                {/* Personal voice notes about this lecture (see VoiceNotes.jsx).
+                Recording pauses the lecture and TTS and never resumes them. */}
+                <VoiceNotes
+                  videoId={videoId}
+                  jobId={jobId}
+                  videoTitle={videoTitle}
+                  getLectureSeconds={() => playerRef.current?.getCurrentTime?.()}
+                  getPointId={() => (pauseOwner !== null ? effectiveActivePointId : null)}
+                  pauseLectureAudio={pauseLectureAudio}
+                  announce={announce}
+                  onGoToTime={handleAskSeek}
+                  controlRef={voiceControlRef}
+                />
 
                 {/* Audio controls — Listen/Pause controls ONLY Synapse's
                 explanation TTS; Resume video (Study mode, shown only while
@@ -1858,6 +1812,14 @@ export default function Explanation({
                   <span aria-hidden="true">↓</span>
                   Export audio
                 </button>
+                {/* Only rendered when App provides the callback (VITE_QUIZ_ENABLED). Leaves through
+                leaveScreen like every other way out, so an unsaved voice-note draft is still protected. */}
+                {onStartPracticeRaw && (
+                  <button onClick={onStartPractice} className="ds-btn-text">
+                    <span aria-hidden="true">✎</span>
+                    Practice this lecture
+                  </button>
+                )}
               </div>
 
               {/* Prev/next navigation */}

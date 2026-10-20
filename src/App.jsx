@@ -5,13 +5,22 @@ import Timeline from "./components/Timeline";
 import Explanation from "./components/Explanation";
 import BookmarksScreen from "./components/BookmarksScreen";
 import LibraryScreen from "./components/LibraryScreen";
+import NotesScreen from "./components/NotesScreen";
+import QuizScreen from "./components/QuizScreen";
 import Navbar from "./components/Navbar";
 import { processVideo, resetMockTimer } from "./api";
+import { getLibrary } from "./storage";
+import { isValidVideoId } from "./lib/askApi";
+import { quizEnabled } from "./lib/quizFlag";
+import { safeStartSeconds } from "./lib/lectureSeek";
 
 function App() {
   const [screen,  setScreen]  = useState("home");
   const [jobInfo, setJobInfo] = useState(null);
   const [exploreSubject, setExploreSubject] = useState(null);
+  // The lecture a quiz belongs to, fixed when "Practice this lecture" is pressed. The quiz screen and
+  // every "Check in the lecture" are checked against it, so a quiz is never tied to another video.
+  const [quizInfo, setQuizInfo] = useState(null);
   // False only on the app's very first render, so the skip link and sidebar
   // stay first in tab order for a first-time visitor. Once the user has left
   // Home at least once, any later return is a real in-app navigation and
@@ -53,6 +62,8 @@ function App() {
       timeline: "Lecture timeline",
       bookmarks: "Bookmarks",
       library: "My Library",
+      notes: "Voice notes",
+      quiz: "Practice this lecture",
     };
     if (titles[screen]) document.title = `${titles[screen]} – Synapse`;
   }, [screen, exploreSubject]);
@@ -106,13 +117,63 @@ function App() {
     setScreen("explanation");
   };
 
+  // ── VOICE NOTES -> EXPLANATION ─────────────────────────────────────────────
+  // Opens the note's lecture cued at the note's time and paused (the learner
+  // presses Play), like opening a bookmark. The note doesn't store the depth
+  // mode, so it is looked up from the library entry for the same video.
+  const handleOpenNote = (note) => {
+    const known = getLibrary().find((e) => e.videoId === note.videoId);
+    setJobInfo({
+      jobId:        note.jobId || note.videoId,
+      videoId:      note.videoId,
+      pointId:      note.pointId || undefined,
+      mode:         known?.mode || "standard",
+      startSeconds: note.lectureSeconds,
+    });
+    setScreen("explanation");
+  };
+
+  // ── LECTURE -> QUIZ ────────────────────────────────────────────────────────
+  // Opens the quiz screen for the lecture on screen. It only navigates: nothing is requested from the
+  // server until the learner presses "Create questions" there. Does nothing when the feature flag is
+  // off or the lecture has no valid video id.
+  const handleStartQuiz = () => {
+    if (!quizEnabled() || !jobInfo || !isValidVideoId(jobInfo.videoId)) return;
+    setQuizInfo({ videoId: jobInfo.videoId, jobId: jobInfo.jobId || jobInfo.videoId });
+    setScreen("quiz");
+  };
+
+  // ── QUIZ -> LECTURE ────────────────────────────────────────────────────────
+  // Back: the same lecture, mode and moment as before, with nothing to cue or play. (Leaving the lecture
+  // screen always destroys its player, so the playhead itself is not kept; see the contract, section 2.)
+  const handleBackFromQuiz = () => {
+    if (!jobInfo) { setScreen("home"); return; }
+    setJobInfo({ ...jobInfo, startSeconds: undefined, autoPlay: false });
+    setScreen("explanation");
+  };
+
+  // "Check in the lecture": the quiz's own lecture, cued at the server-chosen time and PAUSED (the
+  // learner presses Play), the same route Voice Notes uses. A time that is missing, negative, not a
+  // number or out of range becomes "no seek". A request for a different video is ignored.
+  const handleOpenQuizLecture = ({ videoId, startSeconds } = {}) => {
+    if (!quizInfo || videoId !== quizInfo.videoId) return;
+    const known = getLibrary().find((e) => e.videoId === videoId);
+    setJobInfo({
+      jobId:        quizInfo.jobId,
+      videoId,
+      mode:         known?.mode || jobInfo?.mode || "standard",
+      startSeconds: safeStartSeconds(startSeconds),
+    });
+    setScreen("explanation");
+  };
+
   // ── SIDEBAR NAVIGATION ─────────────────────────────────────────────────────
   const handleNavigate = (key) => {
     if (key === "home") {
       setJobInfo(null);
       setExploreSubject(null);
       setScreen("home");
-    } else if (key === "bookmarks" || key === "library") {
+    } else if (key === "bookmarks" || key === "library" || key === "notes") {
       setHasLeftHome(true);
       setScreen(key);
     }
@@ -149,8 +210,10 @@ function App() {
         promise={jobInfo.promise || null}
         bookmarkData={jobInfo.bookmarkData || null}
         autoPlay={jobInfo.autoPlay || false}
+        startSeconds={jobInfo.startSeconds ?? null}
         onNavigate={handleNavigate}
         onOpenTimeline={handleOpenTimeline}
+        onStartPractice={quizEnabled() && isValidVideoId(jobInfo.videoId) ? handleStartQuiz : undefined}
       />
     );
   } else if (screen === "bookmarks") {
@@ -158,6 +221,24 @@ function App() {
       <BookmarksScreen
         onNavigate={handleNavigate}
         onOpenBookmark={handleOpenBookmark}
+      />
+    );
+  } else if (screen === "quiz" && quizInfo) {
+    activeScreen = (
+      <QuizScreen
+        videoId={quizInfo.videoId}
+        jobId={quizInfo.jobId}
+        videoTitle={getLibrary().find((e) => e.videoId === quizInfo.videoId)?.videoTitle || ""}
+        onNavigate={handleNavigate}
+        onOpenLecture={handleOpenQuizLecture}
+        onBack={handleBackFromQuiz}
+      />
+    );
+  } else if (screen === "notes") {
+    activeScreen = (
+      <NotesScreen
+        onNavigate={handleNavigate}
+        onOpenNote={handleOpenNote}
       />
     );
   } else if (screen === "library") {

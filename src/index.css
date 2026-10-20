@@ -330,4 +330,26 @@
   .ds-chip {
     @apply inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-muted border border-border-strong rounded-radius-sm font-sans text-[14px] font-medium text-text-primary;
   }
+
+  /* ── Accessible Quiz & Practice (quiz screen only) ───────────────────── */
+
+  /* Text size: the screen sets --quiz-scale (0.85 to 1.6) on <main>; every size inside is in em, so
+     the whole screen scales together, text wraps instead of overflowing, and nothing has a fixed width. */
+  .quiz-root {
+    font-size: calc(16px * var(--quiz-scale, 1));
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  /* High contrast: white background, black text, 2 px black borders (same treatment as the lecture
+     screen). Re-points the design tokens for this subtree only, so every utility inside follows. */
+  .quiz-contrast {
+    --bg: 255 255 255; --surface: 255 255 255; --surface-muted: 255 255 255;
+    --text-primary: 0 0 0; --text-secondary: 0 0 0; --text-muted: 0 0 0;
+    --border-subtle: 0 0 0; --border-strong: 0 0 0;
+    --accent: 0 0 0; --accent-hover: 0 0 0; --accent-pressed: 0 0 0; --accent-soft: 255 255 255; --on-accent: 255 255 255;
+    --success: 0 0 0; --success-soft: 255 255 255; --warning: 0 0 0; --warning-soft: 255 255 255;
+    --error: 0 0 0; --error-soft: 255 255 255; --focus: 0 0 0;
+  }
+  .quiz-contrast .quiz-box { border-width: 2px; border-color: rgb(0 0 0); }
 }
