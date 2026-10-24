@@ -21,12 +21,17 @@ export default function Home({
     results,
     setResults,
     searching,
+    searchError,
+    validationError,
+    submitting,
     statusMessage,
     setStatusMessage,
     resultsHeadingRef,
     isValidUrl,
     handleSubmit,
     handleUrlChange,
+    selectResult,
+    retrySearch,
   } = useLectureSearch({ onProcess, defaultDepth });
 
   const inputRef = useRef(null);
@@ -51,6 +56,10 @@ export default function Home({
     if (!last) return null;
     return {
       title: last.videoTitle || last.title,
+      videoTitle: last.videoTitle || last.title,
+      videoAuthor: last.videoAuthor || "",
+      videoDuration: last.videoDuration || "",
+      videoThumbnail: last.videoThumbnail || "",
       videoId: last.videoId,
       lastMoment: last.title,
       timestamp: last.timestamp,
@@ -64,16 +73,12 @@ export default function Home({
       videoId: continueLecture.videoId,
       mode: defaultDepth,
       resume: true,
+      metadata: continueLecture,
     });
   }
 
   const handleSelectResult = (video) => {
-    setUrl(`https://youtube.com/watch?v=${video.videoId}`);
-    setResults([]);
-    setStatusMessage(`Selected ${video.title}. The Start learning button is ready.`);
-    // The result button that had focus is unmounting with the list — return
-    // focus to the field (press Enter or Tab to Start learning from here).
-    inputRef.current?.focus();
+    selectResult(video);
   };
 
   return (
@@ -161,19 +166,41 @@ export default function Home({
               </div>
             </div>
 
+            {(validationError || searchError) && (
+              <div
+                role="alert"
+                className="mb-6 p-4 bg-surface border border-red-500/40 rounded-radius-md flex items-center justify-between gap-4"
+              >
+                <span className="text-[14px] text-text-primary">
+                  {validationError || searchError}
+                </span>
+                {searchError && (
+                  <button
+                    type="button"
+                    onClick={retrySearch}
+                    className="ds-btn-secondary text-[13px] shrink-0"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+
             <LectureResultsList
               results={results}
               headingRef={resultsHeadingRef}
               onSelect={handleSelectResult}
-              getAriaLabel={(r, i) => `Result ${i + 1}: ${r.title}, ${r.channel}, ${r.duration}`}
+              showAction
+              disabled={submitting || searching}
+              getAriaLabel={(r, i) => `Start learning: ${r.title}, ${r.channel || r.channel_name}, ${r.duration}`}
             />
 
             <button
               onClick={handleSubmit}
-              disabled={!url.trim() || searching}
-              className={"ds-btn-primary " + (!url.trim() || searching ? "opacity-40 cursor-not-allowed" : "")}
+              disabled={!url.trim() || searching || submitting}
+              className={"ds-btn-primary " + (!url.trim() || searching || submitting ? "opacity-40 cursor-not-allowed" : "")}
             >
-              {searching ? "Searching…" : isValidUrl ? "Start learning" : "Search lectures"}
+              {submitting ? "Starting…" : searching ? "Searching…" : isValidUrl ? "Start learning" : "Search lectures"}
               <span className="text-sm">→</span>
             </button>
           </section>

@@ -18,10 +18,12 @@ export default function Timeline({
   videoId,
   pointId    = null, // carried over from Explanation (e.g. "View full timeline") via jobInfo.pointId — same field Explanation/Bookmarks/Library already use, not a new source of truth
   mode       = "standard",
+  lectureMetadata = null,
   onOpenPoint = () => {},
   onNavigate  = () => {},
 }) {
   const [data,           setData]           = useState(null);
+  const [loadError,      setLoadError]      = useState(null);
   const [selectedId,     setSelectedId]     = useState(pointId);
   const [activeCategory, setActiveCategory] = useState("all");
   const h1Ref = useRef(null);
@@ -42,7 +44,18 @@ export default function Timeline({
     getInterventionPoints(jobId, videoId)
       .then((result) => {
         if (cancelled) return;
-        setData(result);
+        if (result.points.length === 0) {
+          setLoadError("No intervention moments were found for this lecture.");
+          return;
+        }
+        setData({
+          ...result,
+          videoTitle: result.videoTitle || lectureMetadata?.videoTitle || "",
+          author: result.author || lectureMetadata?.videoAuthor || "",
+          duration: result.duration || lectureMetadata?.videoDuration || "",
+          thumbnailUrl:
+            result.thumbnailUrl || lectureMetadata?.videoThumbnail || "",
+        });
         // Honor the point carried over from Explanation if it's actually
         // among this lecture's points; otherwise fall back to the first
         // point, exactly as before pointId existed.
@@ -51,9 +64,16 @@ export default function Timeline({
           : (result.points[0]?.id ?? null);
         if (initialId) setSelectedId(initialId);
       })
-      .catch((err) => console.error("Failed to load points:", err));
+      .catch((err) => {
+        console.error("Failed to load points:", err);
+        if (!cancelled) {
+          setLoadError(
+            err?.message || "Could not load this lecture's intervention moments.",
+          );
+        }
+      });
     return () => { cancelled = true; };
-  }, [jobId, pointId]);
+  }, [jobId, videoId, pointId, lectureMetadata]);
 
   if (!data) {
     return (
@@ -66,8 +86,12 @@ export default function Timeline({
           tabIndex={-1}
           className="flex-1 flex items-center justify-center outline-none"
         >
-          <div role="status" aria-live="polite" className="text-text-secondary text-[14px]">
-            Loading…
+          <div
+            role={loadError ? "alert" : "status"}
+            aria-live="polite"
+            className="text-text-secondary text-[14px]"
+          >
+            {loadError || "Loading…"}
           </div>
         </main>
       </div>
@@ -102,9 +126,9 @@ export default function Timeline({
       : data.points.filter((p) => p.category === activeCategory);
 
   const selectedPoint = data.points.find((p) => p.id === selectedId);
-  const thumbnailUrl  = videoId
-    ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
-    : null;
+  const thumbnailUrl =
+    data.thumbnailUrl ||
+    (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null);
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
@@ -120,6 +144,14 @@ export default function Timeline({
         className="flex-1 min-w-0 overflow-y-auto border-r border-border-subtle outline-none"
       >
         <div className="px-10 py-10">
+          {data.metadataError && (
+            <div
+              role="alert"
+              className="mb-6 px-4 py-3 bg-surface border border-border-subtle rounded-radius-md text-[14px] text-text-secondary"
+            >
+              {data.metadataError} The saved timeline and playback remain available.
+            </div>
+          )}
 
           {/* Breadcrumb */}
           <div className="text-[14px] font-medium text-text-secondary mb-7">

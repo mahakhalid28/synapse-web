@@ -74,13 +74,85 @@ function App() {
   }, [theme]);
 
   // ── HOME -> EXPLANATION (processing now happens inline, no blocking screen) ─
-  const handleProcess = ({ url, videoId, mode }) => {
+  const isProcessingRef = useRef(false);
+  const processingControllerRef = useRef(null);
+  const processingTokenRef = useRef(null);
+
+  const startProcessing = (
+    { url, videoId, mode, metadata = null },
+    { processingJobId = null, retry = false } = {},
+  ) => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    processingControllerRef.current?.abort();
+    const controller = new AbortController();
+    const token = Symbol("processing-request");
+    processingControllerRef.current = controller;
+    processingTokenRef.current = token;
     resetMockTimer();
-    const promise = processVideo({ url, videoId, mode });
-    setJobInfo({ jobId: videoId, videoId, mode, promise });
+    const promise = processVideo({
+      url,
+      videoId,
+      mode,
+      signal: controller.signal,
+      jobId: processingJobId,
+      retry,
+      onStatus: (status) => {
+        setJobInfo((current) =>
+          current?.processingToken === token
+            ? {
+                ...current,
+                jobId: status.jobId || current.jobId,
+                processingJobId: status.jobId || current.processingJobId,
+                processingStatus: status,
+              }
+            : current,
+        );
+      },
+    })
+      .finally(() => {
+        if (processingTokenRef.current === token) {
+          isProcessingRef.current = false;
+          processingControllerRef.current = null;
+        }
+      });
+    setJobInfo({
+      jobId: processingJobId || videoId,
+      processingJobId,
+      videoId,
+      url,
+      mode,
+      promise,
+      processingToken: token,
+      processingStatus: {
+        status: "queued",
+        stage: "queued",
+        message: "Creating or joining the shared processing job.",
+      },
+      lectureMetadata: metadata,
+    });
     setHasLeftHome(true);
     setScreen("explanation");
   };
+  const handleProcess = (request) => startProcessing(request);
+
+  const handleRetryProcessing = () => {
+    if (!jobInfo) return;
+    startProcessing(
+      {
+        url: jobInfo.url,
+        videoId: jobInfo.videoId,
+        mode: jobInfo.mode,
+        metadata: jobInfo.lectureMetadata,
+      },
+      {
+        processingJobId: jobInfo.processingJobId,
+        retry: Boolean(jobInfo.processingJobId),
+      },
+    );
+  };
+
+  useEffect(() => () => processingControllerRef.current?.abort(), []);
 
   // ── TIMELINE -> EXPLANATION ────────────────────────────────────────────────
   const handleOpenPoint = (point) => {
@@ -107,13 +179,22 @@ function App() {
       pointId:      bookmark.pointId,
       mode:         bookmark.mode,
       bookmarkData: bookmark,
+      lectureMetadata: bookmark,
     });
     setScreen("explanation");
   };
 
   // ── LIBRARY -> EXPLANATION ─────────────────────────────────────────────────
-  const handleOpenLibraryExplanation = ({ pointId, videoId, jobId, mode, autoPlay }) => {
-    setJobInfo({ jobId, videoId, pointId, mode, autoPlay: !!autoPlay });
+  const handleOpenLibraryExplanation = (item) => {
+    const { pointId, videoId, jobId, mode, autoPlay } = item;
+    setJobInfo({
+      jobId,
+      videoId,
+      pointId,
+      mode,
+      autoPlay: !!autoPlay,
+      lectureMetadata: item,
+    });
     setScreen("explanation");
   };
 
@@ -129,6 +210,7 @@ function App() {
       pointId:      note.pointId || undefined,
       mode:         known?.mode || "standard",
       startSeconds: note.lectureSeconds,
+      lectureMetadata: known || note,
     });
     setScreen("explanation");
   };
@@ -169,6 +251,10 @@ function App() {
 
   // ── SIDEBAR NAVIGATION ─────────────────────────────────────────────────────
   const handleNavigate = (key) => {
+    processingControllerRef.current?.abort();
+    processingControllerRef.current = null;
+    processingTokenRef.current = null;
+    isProcessingRef.current = false;
     if (key === "home") {
       setJobInfo(null);
       setExploreSubject(null);
@@ -196,6 +282,7 @@ function App() {
         videoId={jobInfo.videoId}
         pointId={jobInfo.pointId}
         mode={jobInfo.mode}
+        lectureMetadata={jobInfo.lectureMetadata || null}
         onOpenPoint={handleOpenPoint}
         onNavigate={handleNavigate}
       />
@@ -208,10 +295,13 @@ function App() {
         pointId={jobInfo.pointId}
         mode={jobInfo.mode}
         promise={jobInfo.promise || null}
+        processingStatus={jobInfo.processingStatus || null}
         bookmarkData={jobInfo.bookmarkData || null}
+        lectureMetadata={jobInfo.lectureMetadata || null}
         autoPlay={jobInfo.autoPlay || false}
         startSeconds={jobInfo.startSeconds ?? null}
         onNavigate={handleNavigate}
+        onRetryProcessing={handleRetryProcessing}
         onOpenTimeline={handleOpenTimeline}
         onStartPractice={quizEnabled() && isValidVideoId(jobInfo.videoId) ? handleStartQuiz : undefined}
       />

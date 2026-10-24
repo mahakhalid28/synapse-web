@@ -1,11 +1,11 @@
 // Client for POST /video/ask (lecture-wide question answering).
 //
-// Deliberately independent of api.js: it has its own base URL and always
-// calls the real endpoint, whatever USE_MOCK is set to there.
+// Q&A always calls the real endpoint, independently of the intervention demo
+// mode. All backend clients share the same base URL configuration.
 
-export const ASK_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
+import { API_BASE_URL, apiUrl } from "./apiConfig.js";
+
+export const ASK_BASE_URL = API_BASE_URL;
 
 export const ASK_TIMEOUT_MS = 90_000;
 export const MAX_QUESTION_LENGTH = 500;
@@ -145,7 +145,7 @@ async function postAsk(body, signal) {
   try {
     let res;
     try {
-      res = await fetch(`${ASK_BASE_URL}/video/ask`, {
+      res = await fetch(apiUrl("/video/ask"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

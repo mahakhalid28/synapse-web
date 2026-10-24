@@ -17,13 +17,17 @@ export default function SubjectLectures({
     url,
     results,
     searching,
+    searchError,
+    validationError,
+    submitting,
     statusMessage,
     resultsHeadingRef,
     isValidUrl,
     runSearch,
+    retrySearch,
     handleSubmit,
     handleUrlChange,
-    startLearning,
+    selectResult,
   } = useLectureSearch({ onProcess, defaultDepth, initialQuery: subject });
 
   const h1Ref = useRef(null);
@@ -96,22 +100,43 @@ export default function SubjectLectures({
             </div>
           </div>
 
+          {(validationError || searchError) && (
+            <div
+              role="alert"
+              className="mb-6 p-4 bg-surface border border-red-500/40 rounded-radius-md flex items-center justify-between gap-4"
+            >
+              <span className="text-[14px] text-text-primary">
+                {validationError || searchError}
+              </span>
+              {searchError && (
+                <button
+                  type="button"
+                  onClick={retrySearch}
+                  className="ds-btn-secondary text-[13px] shrink-0"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
           <LectureResultsList
             results={results}
             headingRef={resultsHeadingRef}
             heading="Search results"
             headingLevel="h2"
-            onSelect={startLearning}
-            getAriaLabel={(r) => `Start learning: ${r.title}, ${r.channel}, ${r.duration}`}
+            onSelect={selectResult}
+            getAriaLabel={(r) => `Start learning: ${r.title}, ${r.channel || r.channel_name}, ${r.duration}`}
             showAction
+            disabled={submitting || searching}
           />
 
           <button
             onClick={handleSubmit}
-            disabled={!url.trim() || searching}
-            className={"ds-btn-primary " + (!url.trim() || searching ? "opacity-40 cursor-not-allowed" : "")}
+            disabled={!url.trim() || searching || submitting}
+            className={"ds-btn-primary " + (!url.trim() || searching || submitting ? "opacity-40 cursor-not-allowed" : "")}
           >
-            {searching ? "Searching…" : isValidUrl ? "Start learning" : "Search lectures"}
+            {submitting ? "Starting…" : searching ? "Searching…" : isValidUrl ? "Start learning" : "Search lectures"}
             <span className="text-sm">→</span>
           </button>
         </div>

@@ -1,9 +1,8 @@
-const USE_MOCK = true;
+import { API_MOCK_MODE, apiUrl } from "./lib/apiConfig.js";
 
-// To test Explanation.jsx end-to-end without the real backend: flip
-// USE_MOCK to true above, then on Home paste this real, public, embeddable
-// video (verified via the same noembed lookup getVideoMetadata() already
-// uses): https://www.youtube.com/watch?v=aircAruvnKk
+// To test Explanation.jsx end-to-end without the real backend, set
+// VITE_API_MOCK_MODE=true, then on Home paste this real, public, embeddable
+// video: https://www.youtube.com/watch?v=aircAruvnKk
 // ("But what is a neural network? | Deep learning chapter 1", 3Blue1Brown,
 // ~19 min — comfortably covers every mock intervention timestamp below).
 // This ID isn't hardcoded anywhere in the mock logic itself (the real
@@ -11,35 +10,257 @@ const USE_MOCK = true;
 // it's just the recommended one, since the fake timestamps below assume a
 // video at least a couple of minutes long.
 
-const API_BASE_URL = "https://nearby-bankroll-heading.ngrok-free.dev";
-
 let cachedResult = null;
 
-export async function processVideo({ url, videoId, mode }) {
-  if (USE_MOCK) {
-    console.log("[MOCK] processVideo called with:", { url, videoId, mode });
-    await delay(400);
-    // Resolve the same way the real backend does — jobId keyed off the
-    // actual videoId that was passed in, not a throwaway placeholder string.
-    return { jobId: videoId };
+const INTERVENTION_ERROR_MESSAGES = {
+  notFound: "This processed lecture is no longer available on the Synapse server.",
+  network: "Can't reach the Synapse server. Is it running?",
+  malformed: "The Synapse server returned unusable intervention data.",
+  server: "The Synapse server could not load this lecture's interventions.",
+};
+
+const VIDEO_METADATA_ERROR_MESSAGES = {
+  invalid: "Enter a valid YouTube video URL.",
+  unavailable: "This video is unavailable or has not been processed by Synapse.",
+  network: "Can't reach the Synapse server to load video details.",
+  malformed: "The Synapse server returned unusable video details.",
+  server: "The Synapse server could not load this video's details.",
+};
+
+const VIDEO_PROCESSING_ERROR_MESSAGES = {
+  invalid: "Enter a valid YouTube video URL.",
+  unavailable: "This YouTube video is unavailable, private, or has been removed.",
+  network: "Can't reach the Synapse server. Check your connection and try again.",
+  failed: "Synapse could not process this lecture. You can retry the job.",
+  malformed: "The Synapse server returned unusable processing status.",
+  server: "Synapse could not process this lecture. Please try again.",
+};
+
+const PROCESSING_STAGE_MESSAGES = {
+  queued: "Waiting for lecture processing to start.",
+  processing: "Processing the lecture.",
+  persisting: "Saving the lecture and intervention moments.",
+  preparing_explanations: "Starting background explanations.",
+  complete: "Lecture processing is complete.",
+  failed: "Lecture processing failed.",
+};
+
+const PROCESSING_STATUSES = new Set(["queued", "running", "succeeded", "failed"]);
+const PROCESSING_STAGES = new Set(Object.keys(PROCESSING_STAGE_MESSAGES));
+const inFlightProcessing = new Map();
+
+export class InterventionPointsError extends Error {
+  constructor(kind, status = null) {
+    super(INTERVENTION_ERROR_MESSAGES[kind] ?? INTERVENTION_ERROR_MESSAGES.server);
+    this.name = "InterventionPointsError";
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+export class VideoMetadataError extends Error {
+  constructor(kind, status = null) {
+    super(VIDEO_METADATA_ERROR_MESSAGES[kind] ?? VIDEO_METADATA_ERROR_MESSAGES.server);
+    this.name = "VideoMetadataError";
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+export class VideoProcessingError extends Error {
+  constructor(kind, status = null, { jobId = null, code = null } = {}) {
+    super(VIDEO_PROCESSING_ERROR_MESSAGES[kind] ?? VIDEO_PROCESSING_ERROR_MESSAGES.server);
+    this.name = "VideoProcessingError";
+    this.kind = kind;
+    this.status = status;
+    this.jobId = jobId;
+    this.code = code;
+    this.retryable = ["network", "failed", "server"].includes(kind);
+  }
+}
+
+function notifyProcessing(onStatus, snapshot, extra = {}) {
+  onStatus?.({
+    ...snapshot,
+    jobId: snapshot?.job_id ?? snapshot?.jobId ?? null,
+    videoId: snapshot?.video_id ?? snapshot?.videoId ?? null,
+    message:
+      extra.message ??
+      PROCESSING_STAGE_MESSAGES[snapshot?.stage] ??
+      "Checking lecture processing status.",
+    ...extra,
+  });
+}
+
+function validateProcessingJob(data, expectedVideoId) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.job_id !== "string" ||
+    !data.job_id ||
+    data.video_id !== expectedVideoId ||
+    !PROCESSING_STATUSES.has(data.status) ||
+    !PROCESSING_STAGES.has(data.stage) ||
+    !Number.isInteger(data.attempt_count) ||
+    data.attempt_count < 0
+  ) {
+    throw new VideoProcessingError("malformed");
+  }
+  return data;
+}
+
+async function readProcessingError(response, jobId = null) {
+  let detail = "";
+  try {
+    const raw = (await response.json())?.detail;
+    detail = typeof raw === "string" ? raw.toLowerCase() : "";
+  } catch {
+    // The response status still provides a safe classification.
+  }
+  const unavailable =
+    response.status === 404 ||
+    response.status === 410 ||
+    /unavailable|private|removed|copyright/.test(detail);
+  const invalid = response.status === 400 || response.status === 422;
+  return new VideoProcessingError(
+    unavailable ? "unavailable" : invalid ? "invalid" : "server",
+    response.status,
+    { jobId },
+  );
+}
+
+async function requestProcessingJob(
+  { videoId, mode, jobId = null, retry = false },
+  { signal } = {},
+) {
+  const path = retry && jobId
+    ? `/video/processing-jobs/${encodeURIComponent(jobId)}/retry`
+    : "/video/processing-jobs";
+  const init = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+  };
+  if (!(retry && jobId)) {
+    const body = { youtube_url: `https://www.youtube.com/watch?v=${videoId}` };
+    if (mode !== undefined) body.output_mode = toBackendExplanationMode(mode);
+    init.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${API_BASE_URL}/video/process`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true",
-    },
-    body: JSON.stringify({
-      youtube_url: `https://www.youtube.com/watch?v=${videoId}`,
-    }),
-  });
-  if (!response.ok) throw new Error(`Process failed: ${response.status}`);
-  const data = await response.json();
+  let response;
+  try {
+    response = await fetch(apiUrl(path), init);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new VideoProcessingError("network", null, { jobId });
+  }
+  if (!response.ok) throw await readProcessingError(response, jobId);
 
-  // Cache so Timeline can reuse without calling backend again.
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new VideoProcessingError("malformed", response.status, { jobId });
+  }
+  return validateProcessingJob(data, videoId);
+}
+
+async function waitForProcessingJob(initial, videoId, { signal, onStatus } = {}) {
+  let snapshot = initial;
+  let networkFailures = 0;
+  notifyProcessing(onStatus, snapshot);
+
+  while (snapshot.status === "queued" || snapshot.status === "running") {
+    await delay(Math.min(1000 * 2 ** networkFailures, 5000), signal);
+    try {
+      snapshot = await getJobStatus(snapshot.job_id, videoId, { signal });
+      networkFailures = 0;
+      notifyProcessing(onStatus, snapshot, { connectionInterrupted: false });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (!(error instanceof VideoProcessingError) || error.kind !== "network") throw error;
+      networkFailures += 1;
+      if (networkFailures > 5) throw error;
+      notifyProcessing(onStatus, snapshot, {
+        connectionInterrupted: true,
+        message: "Connection interrupted. Reconnecting to this processing job.",
+      });
+    }
+  }
+
+  if (snapshot.status === "failed") {
+    throw new VideoProcessingError("failed", null, {
+      jobId: snapshot.job_id,
+      code: snapshot.error_code ?? null,
+    });
+  }
+  return snapshot;
+}
+
+async function runProcessing(
+  { videoId, mode, jobId = null, retry = false },
+  { signal, onStatus } = {},
+) {
+  const initial = await requestProcessingJob(
+    { videoId, mode, jobId, retry },
+    { signal },
+  );
+  const completed = await waitForProcessingJob(initial, videoId, {
+    signal,
+    onStatus,
+  });
+  const data = await fetchPersistedInterventions(videoId, { signal });
   cachedResult = { videoId, data };
-  return { jobId: videoId };
+  return {
+    jobId: completed.job_id,
+    videoId,
+    reusedCache: Boolean(completed.reused_cache),
+  };
+}
+
+export function processVideo({
+  url,
+  videoId,
+  mode,
+  signal,
+  onStatus,
+  jobId = null,
+  retry = false,
+}) {
+  if (API_MOCK_MODE) {
+    console.log("[MOCK] processVideo called with:", { url, videoId, mode });
+    notifyProcessing(onStatus, {
+      job_id: videoId,
+      video_id: videoId,
+      status: "running",
+      stage: "processing",
+    });
+    // Resolve the same way the real backend does — jobId keyed off the
+    // actual videoId that was passed in, not a throwaway placeholder string.
+    return delay(400, signal).then(() => {
+      notifyProcessing(onStatus, {
+        job_id: videoId,
+        video_id: videoId,
+        status: "succeeded",
+        stage: "complete",
+      });
+      return { jobId: videoId, videoId, reusedCache: false };
+    });
+  }
+
+  const backendMode = mode === undefined
+    ? "explanatory"
+    : toBackendExplanationMode(mode);
+  const key = `${videoId}::${backendMode}`;
+  if (!retry && inFlightProcessing.has(key)) return inFlightProcessing.get(key);
+  const promise = runProcessing(
+    { videoId, mode, jobId, retry },
+    { signal, onStatus },
+  ).finally(() => {
+    if (inFlightProcessing.get(key) === promise) inFlightProcessing.delete(key);
+  });
+  inFlightProcessing.set(key, promise);
+  return promise;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -47,47 +268,28 @@ export async function processVideo({ url, videoId, mode }) {
 /* -------------------------------------------------------------------------- */
 /**
  * Polls the status of a processing job.
- * Returns: { stage, progress, message, done }
- *   stage: "downloading" | "extracting" | "detecting" | "generating" | "done"
- *   progress: 0–100
+ * Returns the backend's durable status and actual processing stage.
  */
-let mockJobStartTime = null;
-
-export async function getJobStatus(jobId) {
-  if (USE_MOCK) {
-    if (!mockJobStartTime) mockJobStartTime = Date.now();
-    const elapsed = (Date.now() - mockJobStartTime) / 1000; // seconds
-    const totalDuration = 12; // pretend processing takes 12 seconds
-    const progress = Math.min(100, Math.round((elapsed / totalDuration) * 100));
-
-    let stage, message;
-    if (progress < 20) {
-      stage = "downloading";
-      message = "Fetching video from YouTube";
-    } else if (progress < 45) {
-      stage = "extracting";
-      message = "Extracting keyframes for analysis";
-    } else if (progress < 80) {
-      stage = "detecting";
-      message = `Qwen is reading frame ${Math.floor(progress * 10)} of 872`;
-    } else if (progress < 100) {
-      stage = "generating";
-      message = "Writing explanations for each point";
-    } else {
-      stage = "done";
-      message = "Complete";
-    }
-
-    await delay(150);
-    return { stage, progress, message, done: progress >= 100 };
+export async function getJobStatus(jobId, videoId, { signal } = {}) {
+  let response;
+  try {
+    response = await fetch(
+      apiUrl(`/video/processing-jobs/${encodeURIComponent(jobId)}`),
+      { headers: { Accept: "application/json" }, signal },
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new VideoProcessingError("network", null, { jobId });
   }
+  if (!response.ok) throw await readProcessingError(response, jobId);
 
-  // --- Real API call ---
-  const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`, {
-    headers: { "ngrok-skip-browser-warning": "true" },
-  });
-  if (!response.ok) throw new Error(`Status fetch failed: ${response.status}`);
-  return response.json();
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new VideoProcessingError("malformed", response.status, { jobId });
+  }
+  return validateProcessingJob(data, videoId);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -109,19 +311,16 @@ export async function getJobStatus(jobId) {
  * further needs to change here once the backend adds them in this shape.
  */
 export async function getInterventionPoints(jobId, videoId) {
-  if (USE_MOCK) {
+  if (API_MOCK_MODE) {
     await delay(300);
-    let meta = { title: "Untitled video", author: "Unknown" };
-    try {
-      meta = await getVideoMetadata(videoId);
-    } catch (err) {
-      console.error("Metadata fetch failed:", err);
-    }
+    const meta = await getVideoMetadata(videoId);
     return {
       jobId,
       videoTitle: meta.title,
       author: meta.author,
       duration: "19:13",
+      thumbnailUrl: meta.thumbnailUrl,
+      metadataError: null,
       // Each point carries only what the points-list UI (Timeline, the
       // Lecture Details stepper) needs — focusRegion/structured are included
       // when the underlying intervention has them (see MOCK_INTERVENTIONS
@@ -138,21 +337,44 @@ export async function getInterventionPoints(jobId, videoId) {
     };
   }
 
-  // Real backend
-  // Real backend — read from cache populated by processVideo
-  if (!cachedResult || cachedResult.videoId !== videoId) {
-    throw new Error("No cached result. Process the video first.");
+  // A fresh processing response is reusable, but it is only a performance
+  // cache. Saved lectures must remain reopenable after this module is reloaded.
+  let raw = null;
+  if (cachedResult?.videoId === videoId) {
+    try {
+      raw = validateInterventionResult(cachedResult.data, videoId);
+    } catch (err) {
+      if (!(err instanceof InterventionPointsError)) throw err;
+      // A bad cache must not hide a valid committed backend result.
+    }
   }
-  const raw = cachedResult.data;
 
-  let meta = { title: raw.title, author: "Unknown" };
+  if (!raw) raw = await fetchPersistedInterventions(videoId);
+
+  let meta = {
+    title: raw.title || "Untitled video",
+    author: "",
+    duration: "",
+    thumbnailUrl: videoId
+      ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+      : "",
+  };
+  let metadataError = null;
   try {
-    meta = await getVideoMetadata(videoId);
+    const externalMeta = await getVideoMetadata(videoId);
+    if (externalMeta.title) meta.title = externalMeta.title;
+    if (externalMeta.author) meta.author = externalMeta.author;
+    if (externalMeta.duration) meta.duration = externalMeta.duration;
+    if (externalMeta.thumbnailUrl) meta.thumbnailUrl = externalMeta.thumbnailUrl;
   } catch (err) {
     console.error("Metadata fetch failed:", err);
+    metadataError = err?.message || VIDEO_METADATA_ERROR_MESSAGES.server;
   }
 
-  let duration = raw.duration_formatted;
+  let duration = meta.duration || raw.duration_formatted || "";
+  if (!duration && Number.isFinite(raw.duration_seconds)) {
+    duration = secondsToMMSS(raw.duration_seconds);
+  }
   if (raw.duration_seconds === 0 && raw.interventions.length > 0) {
     const lastSeconds =
       raw.interventions[raw.interventions.length - 1].timestamp;
@@ -163,8 +385,9 @@ export async function getInterventionPoints(jobId, videoId) {
     .filter((iv) => iv.content_type !== "non-educational")
     .map((iv) => ({
       id: iv.id,
-      category: iv.content_type === "slide" ? "diagram" : iv.content_type,
-      timestamp: iv.timestamp_formatted.replace(/^00:/, ""),
+      category:
+        iv.content_type === "slide" ? "diagram" : (iv.content_type || "unknown"),
+      timestamp: secondsToMMSS(iv.timestamp),
       title: titleFromContext(iv.transcript_context, iv.content_type),
       // Not yet provided by the backend — see the contract-gap note above.
       // Passthrough only (never fabricated): once the backend starts
@@ -181,7 +404,92 @@ export async function getInterventionPoints(jobId, videoId) {
     videoTitle: meta.title,
     author: meta.author,
     duration,
+    thumbnailUrl: meta.thumbnailUrl,
+    metadataError,
     points,
+  };
+}
+
+async function fetchPersistedInterventions(videoId, { signal } = {}) {
+  let response;
+  try {
+    response = await fetch(
+      apiUrl(`/video/${encodeURIComponent(videoId)}/interventions`),
+      signal ? { signal } : undefined,
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new InterventionPointsError("network");
+  }
+
+  if (!response.ok) {
+    throw new InterventionPointsError(
+      response.status === 404 ? "notFound" : "server",
+      response.status,
+    );
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new InterventionPointsError("malformed", response.status);
+  }
+  return validateInterventionResult(data, videoId);
+}
+
+function validateInterventionResult(data, videoId) {
+  const malformed = () => {
+    throw new InterventionPointsError("malformed");
+  };
+  if (
+    !data ||
+    typeof data !== "object" ||
+    data.video_id !== videoId ||
+    !Array.isArray(data.interventions) ||
+    (data.title !== null && data.title !== undefined && typeof data.title !== "string") ||
+    (data.duration_seconds !== null &&
+      data.duration_seconds !== undefined &&
+      (!Number.isFinite(data.duration_seconds) || data.duration_seconds < 0)) ||
+    (data.duration_formatted !== null &&
+      data.duration_formatted !== undefined &&
+      typeof data.duration_formatted !== "string") ||
+    (data.total_interventions !== undefined &&
+      data.total_interventions !== data.interventions.length)
+  ) {
+    malformed();
+  }
+
+  const ids = new Set();
+  const interventions = data.interventions.map((item) => {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      typeof item.id !== "string" ||
+      !item.id ||
+      item.video_id !== videoId ||
+      !Number.isFinite(item.timestamp) ||
+      item.timestamp < 0 ||
+      typeof item.frame_path !== "string" ||
+      (item.content_type !== null &&
+        item.content_type !== undefined &&
+        typeof item.content_type !== "string") ||
+      (item.transcript_context !== null &&
+        item.transcript_context !== undefined &&
+        typeof item.transcript_context !== "string") ||
+      ids.has(item.id)
+    ) {
+      malformed();
+    }
+    ids.add(item.id);
+    return item;
+  });
+
+  return {
+    ...data,
+    interventions: [...interventions].sort(
+      (left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id),
+    ),
   };
 }
 
@@ -189,20 +497,100 @@ export async function getInterventionPoints(jobId, videoId) {
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 // Reset the mock timer (call when starting a new job).
 export function resetMockTimer() {
-  mockJobStartTime = null;
+  // Retained for existing callers. Mock jobs no longer use elapsed time.
 }
 export async function getVideoMetadata(videoId) {
-  const url = `https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`;
-  const response = await fetch(url);
-  const data = await response.json();
-  console.log("Raw oEmbed response:", data);
-  return { title: data.title, author: data.author_name };
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId || "")) {
+    throw new VideoMetadataError("invalid");
+  }
+
+  if (API_MOCK_MODE) {
+    return {
+      videoId,
+      title: "Sample lecture",
+      author: "",
+      duration: "19:13",
+      durationSeconds: 1153,
+      thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      exists: true,
+      processed: true,
+    };
+  }
+
+  let response;
+  try {
+    response = await fetch(apiUrl(`/video/meta/${encodeURIComponent(videoId)}`), {
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new VideoMetadataError("network");
+  }
+
+  if (!response.ok) {
+    throw new VideoMetadataError(
+      response.status === 404 || response.status === 410
+        ? "unavailable"
+        : "server",
+      response.status,
+    );
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new VideoMetadataError("malformed", response.status);
+  }
+  if (
+    !data ||
+    typeof data !== "object" ||
+    data.video_id !== videoId ||
+    typeof data.exists !== "boolean" ||
+    typeof data.processed !== "boolean"
+  ) {
+    throw new VideoMetadataError("malformed", response.status);
+  }
+  if (!data.exists) throw new VideoMetadataError("unavailable", response.status);
+
+  const durationSeconds = Number.isFinite(data.duration_seconds)
+    ? data.duration_seconds
+    : null;
+  return {
+    videoId,
+    title: typeof data.title === "string" ? data.title : "",
+    author: typeof data.channel_name === "string" ? data.channel_name : "",
+    duration:
+      typeof data.duration_formatted === "string"
+        ? data.duration_formatted
+        : durationSeconds !== null
+          ? secondsToMMSS(durationSeconds)
+          : "",
+    durationSeconds,
+    thumbnailUrl:
+      typeof data.thumbnail_url === "string" ? data.thumbnail_url : "",
+    exists: data.exists,
+    processed: data.processed,
+  };
 }
 
 /**
@@ -224,20 +612,193 @@ export async function getVideoMetadata(videoId) {
 // Cache so parallel calls for the same point share one HTTP request.
 const _explanationCache = new Map();
 
+const EXPLANATION_MODE_MAP = Object.freeze({
+  brief: "brief",
+  standard: "explanatory",
+  detailed: "detailed",
+});
+
+export function toBackendExplanationMode(mode) {
+  const backendMode = EXPLANATION_MODE_MAP[mode];
+  if (!backendMode) throw new Error(`Unsupported explanation mode: ${mode}`);
+  return backendMode;
+}
+
+const PREPARATION_STATUSES = new Set(["pending", "generating", "ready", "failed"]);
+
+export class ExplanationPreparationError extends Error {
+  constructor(kind, status = null, details = null) {
+    const messages = {
+      unavailable: "Explanation preparation is temporarily unavailable.",
+      notFound: "This lecture or intervention is no longer available.",
+      malformed: "The Synapse server returned unusable preparation status.",
+      exhausted: "This explanation could not be prepared after several attempts.",
+      notRetryable: "This explanation is not currently eligible for retry.",
+      network: "Can't reach the Synapse server to check explanation preparation.",
+    };
+    super(messages[kind] || messages.unavailable);
+    this.name = "ExplanationPreparationError";
+    this.kind = kind;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+function validatePreparationItem(item, malformed) {
+  if (
+    !item ||
+    typeof item !== "object" ||
+    typeof item.intervention_id !== "string" ||
+    !/^[A-Za-z0-9-]{1,64}$/.test(item.intervention_id) ||
+    !Number.isFinite(item.timestamp) ||
+    item.timestamp < 0 ||
+    !PREPARATION_STATUSES.has(item.status) ||
+    (item.error_code !== null &&
+      item.error_code !== undefined &&
+      (typeof item.error_code !== "string" || !/^[a-z0-9_]{1,64}$/.test(item.error_code))) ||
+    !Number.isInteger(item.attempt_count) ||
+    item.attempt_count < 0
+  ) {
+    malformed();
+  }
+  return {
+    intervention_id: item.intervention_id,
+    timestamp: item.timestamp,
+    status: item.status,
+    error_code: item.error_code ?? null,
+    attempt_count: item.attempt_count,
+  };
+}
+
+function validatePreparationStatus(data, videoId, backendMode) {
+  const malformed = () => {
+    throw new ExplanationPreparationError("malformed");
+  };
+  if (
+    !data ||
+    typeof data !== "object" ||
+    data.video_id !== videoId ||
+    data.output_mode !== backendMode ||
+    !Array.isArray(data.items)
+  ) {
+    malformed();
+  }
+  const ids = new Set();
+  let previousTimestamp = -1;
+  const items = data.items.map((raw) => {
+    const item = validatePreparationItem(raw, malformed);
+    if (ids.has(item.intervention_id) || item.timestamp < previousTimestamp) malformed();
+    ids.add(item.intervention_id);
+    previousTimestamp = item.timestamp;
+    return item;
+  });
+  return { video_id: videoId, output_mode: backendMode, items };
+}
+
+async function preparationResponseError(response) {
+  let details = null;
+  try {
+    const body = await response.json();
+    details = body?.detail ?? body;
+  } catch {
+    // The status code is enough to produce a safe user-facing error.
+  }
+  const code = details?.code;
+  if (response.status === 404) return new ExplanationPreparationError("notFound", 404);
+  if (response.status === 409 && code === "retry_exhausted") {
+    return new ExplanationPreparationError("exhausted", 409, details);
+  }
+  if (response.status === 409) {
+    return new ExplanationPreparationError("notRetryable", 409, details);
+  }
+  return new ExplanationPreparationError("unavailable", response.status);
+}
+
+export async function getExplanationPreparationStatus(videoId, mode, { signal } = {}) {
+  const backendMode = toBackendExplanationMode(mode);
+  let response;
+  try {
+    response = await fetch(
+      apiUrl(`/video/${encodeURIComponent(videoId)}/explanations/status?output_mode=${encodeURIComponent(backendMode)}`),
+      { signal },
+    );
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw new ExplanationPreparationError("network");
+  }
+  if (!response.ok) throw await preparationResponseError(response);
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new ExplanationPreparationError("malformed", response.status);
+  }
+  return validatePreparationStatus(data, videoId, backendMode);
+}
+
+export async function retryExplanationPreparation(videoId, interventionId, mode, { signal } = {}) {
+  const backendMode = toBackendExplanationMode(mode);
+  let response;
+  try {
+    response = await fetch(
+      apiUrl(
+        `/video/${encodeURIComponent(videoId)}/interventions/${encodeURIComponent(interventionId)}/explanations/retry?output_mode=${encodeURIComponent(backendMode)}`,
+      ),
+      { method: "POST", signal },
+    );
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw new ExplanationPreparationError("network");
+  }
+  if (!response.ok) throw await preparationResponseError(response);
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new ExplanationPreparationError("malformed", response.status);
+  }
+  const malformed = () => {
+    throw new ExplanationPreparationError("malformed", response.status);
+  };
+  if (
+    data?.video_id !== videoId ||
+    data?.intervention_id !== interventionId ||
+    data?.output_mode !== backendMode
+  ) {
+    malformed();
+  }
+  if (
+    !PREPARATION_STATUSES.has(data.status) ||
+    (data.error_code !== null &&
+      data.error_code !== undefined &&
+      (typeof data.error_code !== "string" || !/^[a-z0-9_]{1,64}$/.test(data.error_code))) ||
+    !Number.isInteger(data.attempt_count) ||
+    data.attempt_count < 0
+  ) {
+    malformed();
+  }
+  return {
+    video_id: videoId,
+    intervention_id: interventionId,
+    output_mode: backendMode,
+    status: data.status,
+    error_code: data.error_code ?? null,
+    attempt_count: data.attempt_count,
+  };
+}
+
 async function getInterventionExplanation(videoId, interventionId, mode) {
-  const key = `${videoId}::${interventionId}::${mode}`;
+  const backendMode = toBackendExplanationMode(mode);
+  const key = `${videoId}::${interventionId}::${backendMode}`;
   if (_explanationCache.has(key)) return _explanationCache.get(key);
 
-  const promise = fetch(`${API_BASE_URL}/video/intervention/explain`, {
+  const promise = fetch(apiUrl("/video/intervention/explain"), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       video_id: videoId,
       intervention_id: interventionId,
-      output_mode: mode,
+      output_mode: backendMode,
     }),
   })
     .then(async (res) => {
@@ -249,32 +810,7 @@ async function getInterventionExplanation(videoId, interventionId, mode) {
         );
         throw new Error(`Explain failed: ${res.status} — ${errBody}`);
       }
-      const data = await res.json();
-      let audioBlobUrl = null;
-      if (data.audio_file_path) {
-        const audioUrl = data.audio_file_path.startsWith("http")
-          ? data.audio_file_path
-          : `${API_BASE_URL}/${data.audio_file_path}`;
-        // Fetch audio as blob so we can include the ngrok header and hand a
-        // local blob URL to the Audio element (plain <audio src> can't set headers).
-        try {
-          const audioRes = await fetch(audioUrl, {
-            headers: { "ngrok-skip-browser-warning": "true" },
-          });
-          if (audioRes.ok) {
-            const blob = await audioRes.blob();
-            audioBlobUrl = URL.createObjectURL(blob);
-          } else {
-            console.warn(
-              "[Synapse] Audio file not served by backend:",
-              audioRes.status,
-            );
-          }
-        } catch (e) {
-          console.warn("[Synapse] Could not fetch audio file:", e.message);
-        }
-      }
-      return { ...data, audio_file_path: audioBlobUrl };
+      return hydrateExplanationAudio(await res.json());
     })
     .catch((err) => {
       // Don't cache failures — allow retry on next call
@@ -286,8 +822,82 @@ async function getInterventionExplanation(videoId, interventionId, mode) {
   return promise;
 }
 
+async function hydrateExplanationAudio(data, { signal } = {}) {
+  let audioBlobUrl = null;
+  let audioError = null;
+  if (data.audio_url) {
+    const audioUrl = data.audio_url.startsWith("http")
+      ? data.audio_url
+      : apiUrl(data.audio_url);
+    try {
+      const audioRes = await fetch(audioUrl, { signal });
+      if (audioRes.ok) {
+        const blob = await audioRes.blob();
+        audioBlobUrl = URL.createObjectURL(blob);
+      } else {
+        audioError = "Explanation audio is unavailable. You can still read the explanation.";
+        console.warn("[Synapse] Audio file not served by backend:", audioRes.status);
+      }
+    } catch (error) {
+      audioError = "Explanation audio could not be loaded. You can still read the explanation.";
+      console.warn("[Synapse] Could not fetch audio file:", error.message);
+    }
+  } else {
+    audioError = "Explanation audio is unavailable. You can still read the explanation.";
+  }
+  return {
+    ...data,
+    audio_url: data.audio_url || null,
+    audio_file_path: audioBlobUrl,
+    audio_error: audioError,
+  };
+}
+
+// Reads an explanation which P2 has already marked ready. Unlike the legacy
+// POST client above, this endpoint can never start competing inference.
+export async function getPreparedExplanation(interventionId, mode, videoId, { signal } = {}) {
+  if (API_MOCK_MODE) {
+    const [explanation, audio] = await Promise.all([
+      getExplanation(interventionId, mode, videoId),
+      getTTSExplanation(interventionId, mode, videoId),
+    ]);
+    return { explanation, audio };
+  }
+
+  const backendMode = toBackendExplanationMode(mode);
+  const response = await fetch(
+    apiUrl(
+      `/video/intervention/${encodeURIComponent(interventionId)}/explanation?output_mode=${encodeURIComponent(backendMode)}`,
+    ),
+    { signal },
+  );
+  if (!response.ok) {
+    throw new ExplanationPreparationError(
+      response.status === 404 ? "notFound" : "unavailable",
+      response.status,
+    );
+  }
+  const data = await hydrateExplanationAudio(await response.json(), { signal });
+  if (
+    data.intervention_id !== interventionId ||
+    data.output_mode !== backendMode ||
+    typeof data.text_explanation !== "string" ||
+    !data.text_explanation.trim()
+  ) {
+    throw new ExplanationPreparationError("malformed", response.status);
+  }
+  const parsed = parseTextExplanation(
+    data.explanation ?? data.text_explanation,
+    interventionId,
+  );
+  return {
+    explanation: { ...parsed, keyInsight: data.keyInsight ?? parsed.keyInsight },
+    audio: data,
+  };
+}
+
 export async function getTTSExplanation(interventionId, mode, videoId) {
-  if (USE_MOCK) {
+  if (API_MOCK_MODE) {
     await delay(600);
     const mock = MOCK_INTERVENTIONS[interventionId] ?? MOCK_INTERVENTIONS.p1;
     return {
@@ -514,7 +1124,7 @@ function splitMockExplanation(text) {
 }
 
 export async function getExplanation(pointId, mode, videoId) {
-  if (USE_MOCK) {
+  if (API_MOCK_MODE) {
     await delay(300);
     const mock = MOCK_INTERVENTIONS[pointId] ?? MOCK_INTERVENTIONS.p1;
     const { subtitle, paragraphs } = splitMockExplanation(mock.explanation);
@@ -559,16 +1169,20 @@ function parseTextExplanation(text, pointId) {
   return { pointId, subtitle, paragraphs: body, keyInsight };
 }
 function secondsToMMSS(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+  const wholeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(wholeSeconds / 3600);
+  const m = Math.floor((wholeSeconds % 3600) / 60);
+  const s = String(wholeSeconds % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
 // Generates a short, sentence-cased title from the transcript snippet.
 // Backend doesn't give us titles, so we make readable ones from context.
 function titleFromContext(transcript, contentType) {
   if (!transcript)
-    return contentType.charAt(0).toUpperCase() + contentType.slice(1);
+    return contentType
+      ? contentType.charAt(0).toUpperCase() + contentType.slice(1)
+      : "Visual moment";
   const cleaned = transcript.replace(/\s+/g, " ").trim();
   // Take first 6 words, capitalize first letter
   const words = cleaned.split(" ").slice(0, 6).join(" ");

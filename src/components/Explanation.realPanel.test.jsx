@@ -37,6 +37,14 @@ vi.mock("../api", () => ({
   })),
   getExplanation: vi.fn(async (pointId) => ({ pointId, subtitle: "S", paragraphs: ["P."], keyInsight: "K." })),
   getTTSExplanation: vi.fn(async () => ({ text_explanation: "x", audio_file_path: "blob:tts", output_mode: "standard" })),
+  getExplanationPreparationStatus: vi.fn(async () => ({
+    items: [{ intervention_id: "p1", timestamp: 10, status: "ready", error_code: null, attempt_count: 1 }],
+  })),
+  getPreparedExplanation: vi.fn(async (pointId) => ({
+    explanation: { pointId, subtitle: "S", paragraphs: ["P."], keyInsight: "K." },
+    audio: { audio_file_path: "blob:tts", audio_error: null },
+  })),
+  retryExplanationPreparation: vi.fn(),
 }));
 vi.mock("../lib/notesStore.js", () => ({
   listNotesForVideo: vi.fn(async () => []),

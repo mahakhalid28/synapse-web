@@ -12,10 +12,10 @@
 // The client never retries by itself: every Retry the user chooses is a new request, and a new
 // (paid) model call on the server.
 
-import { ASK_BASE_URL } from "./askApi.js";
+import { API_BASE_URL, apiUrl } from "./apiConfig.js";
 import { MAX_QUESTION_COUNT, MIN_QUESTION_COUNT, QuizSchemaError, parseQuizResponse } from "./quizSchema.js";
 
-export const QUIZ_BASE_URL = ASK_BASE_URL;
+export const QUIZ_BASE_URL = API_BASE_URL;
 export const QUIZ_TIMEOUT_MS = 120_000; // provisional: longer than the server's own ~100 s limit
 export const DEFAULT_QUESTION_COUNT = 6;
 
@@ -92,7 +92,7 @@ async function post(body, signal) {
   try {
     let res;
     try {
-      res = await fetch(`${QUIZ_BASE_URL}/video/quiz`, {
+      res = await fetch(apiUrl("/video/quiz"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

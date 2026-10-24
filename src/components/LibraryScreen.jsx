@@ -152,9 +152,9 @@ export default function LibraryScreen({
 /* ── Compact horizontal card ─────────────────────────────────────────────── */
 
 function ExplanationCard({ item, onReadText, onPlayAudio, onRemove }) {
-  const thumbnailUrl = item.videoId
-    ? `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`
-    : null;
+  const thumbnailUrl =
+    item.videoThumbnail ||
+    (item.videoId ? `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg` : null);
   const dateStr = item.savedAt
     ? new Date(item.savedAt).toLocaleDateString("en-US", {
         month: "short",

@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import Explanation from "./Explanation";
+import { getPreparedExplanation } from "../api";
 
 const h = vi.hoisted(() => {
   const players = [];
@@ -67,6 +68,17 @@ vi.mock("../api", () => ({
   })),
   getExplanation: vi.fn(async (pointId) => ({ pointId, subtitle: "A subtitle", paragraphs: ["Paragraph one."], keyInsight: "A key insight." })),
   getTTSExplanation: vi.fn(async () => ({ text_explanation: "x", audio_file_path: "blob:tts", output_mode: "standard" })),
+  getExplanationPreparationStatus: vi.fn(async () => ({
+    items: [
+      { intervention_id: "p1", timestamp: 10, status: "ready", error_code: null, attempt_count: 1 },
+      { intervention_id: "p2", timestamp: 50, status: "ready", error_code: null, attempt_count: 1 },
+    ],
+  })),
+  getPreparedExplanation: vi.fn(async (pointId) => ({
+    explanation: { pointId, subtitle: "A subtitle", paragraphs: ["Paragraph one."], keyInsight: "A key insight." },
+    audio: { audio_file_path: "blob:tts", audio_error: null },
+  })),
+  retryExplanationPreparation: vi.fn(),
 }));
 
 // The real panel is replaced by a stub that exposes the props Explanation gives it
@@ -113,6 +125,28 @@ async function open(props = {}) {
 }
 
 const altKey = (code, key) => fireEvent.keyDown(window, { code, key, altKey: true });
+
+describe("explanation audio availability", () => {
+  it("keeps readable text and exposes an accessible audio error", async () => {
+    getPreparedExplanation.mockResolvedValueOnce({
+      explanation: {
+        pointId: "p1",
+        subtitle: "A subtitle",
+        paragraphs: ["Paragraph one."],
+        keyInsight: "A key insight.",
+      },
+      audio: {
+        audio_file_path: null,
+        audio_error: "Explanation audio is unavailable. You can still read the explanation.",
+      },
+    });
+
+    await open();
+
+    expect(screen.getByText("A subtitle")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/still read the explanation/i);
+  });
+});
 
 describe("Alt+M", () => {
   it("is listed with the other shortcuts, on the page", async () => {
