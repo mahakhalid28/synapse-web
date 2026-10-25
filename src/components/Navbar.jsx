@@ -21,7 +21,7 @@ const THEMES = [
   },
 ];
 
-export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
+export default function Navbar({ theme = "paper", onThemeChange = () => {}, onHelp = null }) {
   const [open, setOpen] = useState(false);
   const panelRef        = useRef(null);
   const gearRef         = useRef(null);
@@ -41,10 +41,23 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
 
   return (
     <header className="h-14 shrink-0 bg-surface border-b border-border-subtle flex items-center px-4 relative z-40 font-sans">
+      {/* Help opens App's Help dialog (a modal over the current screen, not a navigation). It is
+        only rendered when App provides the handler; the event is passed so App can return focus to
+        this button when the dialog closes. */}
+      {onHelp && (
+        <button
+          type="button"
+          onClick={onHelp}
+          className="ml-auto mr-1 min-h-[44px] px-3 rounded-radius-sm font-sans text-[14px] font-medium text-text-secondary hover:text-text-primary hover:bg-surface-muted transition-colors focus-ring"
+        >
+          Help
+        </button>
+      )}
+
       {/* Right side: gear button + panel */}
       <div
         ref={panelRef}
-        className="ml-auto relative"
+        className={"relative " + (onHelp ? "" : "ml-auto")}
         onKeyDown={(e) => {
           if (e.key === "Escape" && open) {
             setOpen(false);

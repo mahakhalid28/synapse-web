@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import Welcome from "./components/Welcome";
+import HelpDialog from "./components/HelpDialog";
 import Home from "./components/Home";
 import SubjectLectures from "./components/SubjectLectures";
 import Timeline from "./components/Timeline";
@@ -13,9 +15,14 @@ import { getLibrary } from "./storage";
 import { isValidVideoId } from "./lib/askApi";
 import { quizEnabled } from "./lib/quizFlag";
 import { safeStartSeconds } from "./lib/lectureSeek";
+import { needsWelcome } from "./lib/onboardingPrefs";
 
 function App() {
-  const [screen,  setScreen]  = useState("home");
+  // Welcome is the first screen on EVERY launch while onboarding is switched on (see onboardingPrefs.js);
+  // whether it was completed before does not matter. Decided once, here, so it can never reappear during
+  // a session. As the INITIAL screen it gets no
+  // focus move on cold load, exactly like Home, so the skip link stays first in tab order.
+  const [screen,  setScreen]  = useState(() => (needsWelcome() ? "welcome" : "home"));
   const [jobInfo, setJobInfo] = useState(null);
   const [exploreSubject, setExploreSubject] = useState(null);
   // The lecture a quiz belongs to, fixed when "Practice this lecture" is pressed. The quiz screen and
@@ -57,6 +64,7 @@ function App() {
   // NVDA+T). The lecture screen sets its own, naming the current moment.
   useEffect(() => {
     const titles = {
+      welcome: "Welcome",
       home: "Start a study session",
       subject: exploreSubject ? `${exploreSubject} lectures` : "Lectures",
       timeline: "Lecture timeline",
@@ -249,6 +257,64 @@ function App() {
     setScreen("explanation");
   };
 
+  // ── WELCOME -> HOME ────────────────────────────────────────────────────────
+  // Welcome has already saved its own flag and choice. This only leaves it; the screen change moves
+  // focus to Home's <h1> through the same effect every other screen change uses.
+  const handleWelcomeDone = () => {
+    setHasLeftHome(true);
+    setScreen("home");
+  };
+
+  // ── HELP (a modal dialog over the current screen) ──────────────────────────
+  // Help never navigates, so the screen behind it stays mounted: a lecture's player and its processing
+  // job are untouched. The screen on show may register a guard in helpGuardRef (Explanation, NotesScreen):
+  // beforeHelp() runs first and may refuse (voice-note recording) or pause/stop what is playing and
+  // return a notice for the dialog; afterHelp() runs on close. Closing never resumes anything.
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpNotice, setHelpNotice] = useState("");
+  const helpGuardRef = useRef(null);
+  // The screen on show calls this to register its guard; it returns the function that removes it.
+  const registerHelpGuard = useCallback((guard) => {
+    helpGuardRef.current = guard;
+    return () => {
+      if (helpGuardRef.current === guard) helpGuardRef.current = null;
+    };
+  }, []);
+  const helpOpenerRef = useRef(null);
+  const restoreHelpFocusRef = useRef(false);
+
+  // `source` is the click event from a Help button (its button gets focus back on close) or an element.
+  const openHelp = (source) => {
+    if (helpOpen) return;
+    const result = helpGuardRef.current?.beforeHelp?.() ?? { blocked: false };
+    if (result.blocked) return;
+    helpOpenerRef.current = source?.currentTarget ?? source ?? document.activeElement;
+    setHelpNotice(result.notice || "");
+    setHelpOpen(true);
+  };
+  const closeHelp = () => {
+    helpGuardRef.current?.afterHelp?.();
+    restoreHelpFocusRef.current = true;
+    setHelpOpen(false);
+  };
+  // Runs after the screen behind is no longer inert, so focus can go back to where Help was opened
+  // (or, if that is gone, to the page heading).
+  useEffect(() => {
+    if (helpOpen || !restoreHelpFocusRef.current) return;
+    restoreHelpFocusRef.current = false;
+    const opener = helpOpenerRef.current;
+    helpOpenerRef.current = null;
+    if (opener && opener.isConnected) {
+      opener.focus();
+      return;
+    }
+    const h1 = document.querySelector("main h1");
+    if (h1) {
+      h1.setAttribute("tabindex", "-1");
+      h1.focus({ preventScroll: true });
+    }
+  }, [helpOpen]);
+
   // ── SIDEBAR NAVIGATION ─────────────────────────────────────────────────────
   const handleNavigate = (key) => {
     processingControllerRef.current?.abort();
@@ -304,6 +370,8 @@ function App() {
         onRetryProcessing={handleRetryProcessing}
         onOpenTimeline={handleOpenTimeline}
         onStartPractice={quizEnabled() && isValidVideoId(jobInfo.videoId) ? handleStartQuiz : undefined}
+        registerHelpGuard={registerHelpGuard}
+        onOpenHelp={openHelp}
       />
     );
   } else if (screen === "bookmarks") {
@@ -313,6 +381,8 @@ function App() {
         onOpenBookmark={handleOpenBookmark}
       />
     );
+  } else if (screen === "welcome") {
+    activeScreen = <Welcome onDone={handleWelcomeDone} onOpenHelp={openHelp} />;
   } else if (screen === "quiz" && quizInfo) {
     activeScreen = (
       <QuizScreen
@@ -329,6 +399,7 @@ function App() {
       <NotesScreen
         onNavigate={handleNavigate}
         onOpenNote={handleOpenNote}
+        registerHelpGuard={registerHelpGuard}
       />
     );
   } else if (screen === "library") {
@@ -359,7 +430,10 @@ function App() {
 
   // ── Layout: Navbar (slim top bar) + screen below ───────────────────────────
   return (
-    <div className="flex flex-col h-screen">
+    <>
+    {/* While Help is open everything behind it is inert (no focus, no clicks, hidden from assistive
+      technology); the dialog is a sibling, outside the inert part. */}
+    <div className="flex flex-col h-screen" inert={helpOpen ? "" : undefined}>
       {/* One shared skip link, rendered before Navbar so it's genuinely
         first in tab order on every screen — previously each screen (Home,
         SubjectLectures, Timeline) rendered its own copy, but since Navbar
@@ -376,11 +450,13 @@ function App() {
       >
         Skip to main content
       </a>
-      <Navbar theme={theme} onThemeChange={setTheme} />
+      <Navbar theme={theme} onThemeChange={setTheme} onHelp={openHelp} />
       <div className="flex-1 overflow-hidden">
         {activeScreen}
       </div>
     </div>
+    {helpOpen && <HelpDialog notice={helpNotice} onClose={closeHelp} />}
+    </>
   );
 }
 

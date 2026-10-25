@@ -47,8 +47,9 @@ replacement).
 
 ## App.jsx — screens & routing
 
-Single `screen` state string: `"home" | "subject" | "timeline" |
-"explanation" | "bookmarks" | "library" | "notes"`. No more `"processing"` screen —
+Single `screen` state string: `"welcome" | "home" | "subject" | "timeline" |
+"explanation" | "bookmarks" | "library" | "notes"` (plus `"quiz"`). `"welcome"` is only ever the
+INITIAL screen, and only until onboarding is completed (see "Onboarding" below). No more `"processing"` screen —
 it was removed; `handleProcess()` now goes straight to `"explanation"` with
 an in-flight `processVideo()` promise passed down as a prop, and
 Explanation.jsx shows an inline "Preparing your lecture… N%" banner itself
@@ -107,7 +108,7 @@ repo. Installer, signing and icon: not tried.
 
 Voice Notes validation status (details and the NOT TESTED list: `docs/VOICE_NOTES_VALIDATION.md`;
 labels AUTOMATED / SCRIPTED-REAL / HUMAN / NOT TESTED are defined there):
-- AUTOMATED: 440 tests pass (jsdom + fakes; they check logic, not real hardware).
+- AUTOMATED: the whole suite passes (991 tests in 45 files as of 2026-10-25; re-run `npm test` for the current number). jsdom + fakes; they check logic, not real hardware. (This line said 440 before the Quiz, Ask and onboarding work.)
 - SCRIPTED-REAL: scripts drove real Electron, including the unpacked packaged
   app with the real YouTube player and mock lecture data — with Chromium's FAKE
   microphone device. Key events were injected via the DevTools protocol.
@@ -119,6 +120,40 @@ labels AUTOMATED / SCRIPTED-REAL / HUMAN / NOT TESTED are defined there):
   the packaged app against the real backend (only a local stand-in server was
   used). Do not describe any of these as verified.
 - Alt+M's exact behaviour is documented in `docs/KEYBOARD_SHORTCUTS.md`.
+
+## Onboarding (Welcome, Help, "How this lecture works" card)
+
+- **Welcome** (`components/Welcome.jsx`): one screen, the app's first screen on EVERY launch while
+  `VITE_ONBOARDING_ENABLED` is on (product decision; it is only ever the initial screen, so never twice in a
+  session). Nothing stored decides this: `synapse_onboarding_completed` is still written by both buttons but
+  no longer read (retain-or-remove is an open decision), and nothing is inferred from other keys. It
+  preselects the saved `synapse_presentation_mode` (default Accessibility mode), makes no focus move on cold
+  load (skip link stays first), starts no speech, and offers the two EXISTING presentation modes. Get started
+  saves the choice if it changed; Skip for now never writes a mode. Launching writes nothing. All flags:
+  `lib/onboardingPrefs.js` (guarded storage, in-memory fallback only when a write fails;
+  `VITE_ONBOARDING_ENABLED` on in dev and production builds, off under Vitest, baked in at build time; `0` or
+  `false` turns Welcome off entirely). Copy lives in `lib/onboardingText.js`.
+- **Help** (`components/HelpDialog.jsx`, opened by the top-bar Help button or Welcome's "How Synapse works"):
+  a MODAL over the current screen, never a navigation, so the lecture player and processing job are
+  untouched; the rest of the app is `inert` while it is open; Escape or Close closes it and focus returns to
+  its opener. The screen on show registers `{ beforeHelp, afterHelp }` through `registerHelpGuard`
+  (Explanation, NotesScreen). On a lecture, `beforeHelp` pauses whatever is playing and stops a playing voice
+  note (position not kept) and returns a notice the dialog shows as its description (the screen behind is
+  inert, so a live region there would not be heard); it is REFUSED while a voice note is being recorded.
+  `helpOpenRef` makes three paths refuse to start media while Help is open (audio autoplay, the moment
+  watcher, a late YouTube PLAYING event) and silences the lecture shortcuts. Closing Help never resumes
+  anything.
+- **Guide card** (in `Explanation.jsx`): "How this lecture works", both modes, dismissed with its own flag
+  `synapse_guide_dismissed`. It is NOT `synapse_intro_seen`, which still belongs to the unchanged spoken
+  introduction. The card never speaks or takes focus.
+- **Shortcuts: `lib/shortcuts.js` is the single table.** The lecture key handler, the on-page list, Help and
+  Alt+K's speech all read it; `shortcuts.test.jsx` fails on drift. There is no keyboard shortcut for Help. See
+  `docs/KEYBOARD_SHORTCUTS.md`.
+- Status: AUTOMATED tests only (fakes, jsdom, which does not implement `inert`). NOT yet verified: real
+  Electron/Chromium (YouTube buffering and delayed PLAYING, `inert`, focus trap and return), NVDA, the visuals,
+  and the packaged-build flag. Separate known issue, not fixed here: the explanation-audio `autoPlay` path in
+  `Explanation.jsx` does not check `voiceControlRef.lectureStarted()`, so it can start audio during a voice-note
+  recording.
 
 ## Home.jsx
 

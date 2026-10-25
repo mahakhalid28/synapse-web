@@ -143,6 +143,17 @@ export default function VoiceNotes({
         if (player.playingId) player.stop();
         return false;
       },
+      // Called when the learner asks for Help. Refused while the microphone is in use (a screen
+      // reader reading Help could be recorded). Otherwise a voice note that is playing (or still
+      // loading) is stopped, which is what its own Play button does; its position is not kept.
+      // Never touches the recorder or a saved note.
+      beforeHelp: () => {
+        const current = recorder.getStatus();
+        if (current === "preparing" || current === "recording") return { blocked: true, stoppedNote: false };
+        const stoppedNote = Boolean(player.playingId);
+        if (stoppedNote) player.stop();
+        return { blocked: false, stoppedNote };
+      },
       requestLeave,
     };
     return () => { controlRef.current = null; };

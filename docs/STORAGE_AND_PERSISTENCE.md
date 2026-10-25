@@ -22,9 +22,18 @@ Because there is no Electron file or `userData` usage, "storage" in the Electron
 | `synapse_theme` | `App.jsx` (effect on `theme`) | `main.jsx` (before first render), `App.jsx` (initial state) | `"paper"` (default) \| `"night"` \| `"sepia"`. |
 | `synapse_presentation_mode` | `Explanation.jsx` (effect) | `Explanation.jsx` (initial state) | `"accessibility"` (default) \| `"study"`; any other value is ignored. |
 | `synapse_tts_rate` | `Explanation.jsx` `changeRate` | `Explanation.jsx` (initial state) | A number string from `RATES` (`0.75, 1, 1.25, 1.5, 2`); anything else falls back to `1`. |
-| `synapse_intro_seen` | `Explanation.jsx` (first-lecture hint) | same | `"1"` once the one-time spoken hint about Play/Listen/Alt+K has been given. |
+| `synapse_intro_seen` | `Explanation.jsx` (first-lecture hint) | same | `"1"` once the one-time spoken hint about Play/Listen/Alt+K has been given. **Unchanged by onboarding**; it belongs to the spoken introduction only. |
+| `synapse_onboarding_completed` | `src/lib/onboardingPrefs.js` (`completeOnboarding`, from the Welcome screen's Get started or Skip for now) | **Nothing.** It was read by `needsWelcome()` until Welcome was made to appear on every launch; it is still written, but no code reads it. | `"1"` once Welcome has been finished or skipped. Kept for now; whether to remove it is an open decision. |
+| `synapse_guide_dismissed` | `src/lib/onboardingPrefs.js` (`dismissGuide`, from "Got it" on the lecture screen's "How this lecture works" card) | `isGuideDismissed()` when the lecture screen opens | `"1"` once the card has been dismissed. Independent of `synapse_intro_seen`. |
 
-No other keys exist. Not persisted: text scale, high contrast, active tab, Ask content, search text, last position in a video.
+This table covers the `localStorage` keys that existed when this file was written plus the two onboarding keys above. The Quiz settings (`synapse_quiz_*`) and the Voice Notes store (IndexedDB) are documented elsewhere (`docs/QUIZ_CONTRACT.md`, `docs/VOICE_NOTES_VALIDATION.md`) and are not listed here. Not persisted: text scale, high contrast on the lecture screen, active tab, Ask content, search text, last position in a video.
+
+### Onboarding keys (`src/lib/onboardingPrefs.js`)
+
+- **Welcome opens on every launch** while onboarding is switched on (a product decision), so what is stored does not decide whether it is shown: not `synapse_onboarding_completed`, and nothing is inferred from the Library, bookmarks, `synapse_presentation_mode`, `synapse_intro_seen`, the theme or the quiz keys. It is only ever the app's initial screen, so it cannot return within a session. The guide card is still shown until it is dismissed. Launching writes nothing; Welcome seeds its mode choice from the saved `synapse_presentation_mode` (default Accessibility mode) and only rewrites it if the learner changes the choice and presses Get started; "Skip for now" never writes a mode (it still writes the completion flag).
+- **Guarded access.** Reads and writes are wrapped in `try/catch`; a missing or throwing `localStorage` means "not set". If a write **fails**, the flag is kept in memory for the rest of the session (so the guide card does not come back) and is lost on restart. If a write succeeds, storage is the only record (clearing storage clears it).
+- **Feature flag.** `VITE_ONBOARDING_ENABLED` (`1`/`true` on, `0`/`false` off; any other value is ignored). Unset: on in development and in a production build, off under the test runner (`MODE === "test"`). Vite writes it into the bundle at build time, so a packaged app cannot change it. **Not yet verified in a packaged build.**
+- Welcome also writes `synapse_presentation_mode` (same key and values as the lecture screen) when the learner presses Get started after changing, or never having saved, the choice.
 
 ## Data shapes
 
@@ -77,7 +86,7 @@ No other keys exist. Not persisted: text scale, high contrast, active tab, Ask c
 
 | Situation | Result |
 |---|---|
-| Key missing | Lists default to `[]`; theme `"paper"`; presentation mode `"accessibility"`; rate `1`. |
+| Key missing | Lists default to `[]`; theme `"paper"`; presentation mode `"accessibility"`; rate `1`; Welcome is shown on every launch regardless; guide not dismissed (the card is shown). |
 | Corrupt JSON in `synapse_bookmarks`/`synapse_library` | Treated as empty (`catch → []`); the next write overwrites the corrupt value (data loss). |
 | Valid JSON that is not an array (e.g. `{}`) | `getBookmarks()` returns that value as-is; `.filter`/`.some` then throws a `TypeError` [Inferred — not guarded]. |
 | `setItem` throws (quota, storage disabled) | **Not caught** in `src/storage.js`, `App.jsx` or the presentation-mode effect — an exception would surface in the effect/handler. Only the TTS-rate write and the one-time intro flag are wrapped in `try/catch`. |

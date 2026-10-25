@@ -23,6 +23,23 @@ import CategoryIcon from "./CategoryIcon";
 import AskLecture from "./AskLecture";
 import { formatTimestamp } from "../lib/askApi";
 import VoiceNotes from "./VoiceNotes";
+import {
+  LECTURE_SHORTCUT_ROWS,
+  LECTURE_SHORTCUTS_SPOKEN,
+  lectureActionForCode,
+  rowKeys,
+} from "../lib/shortcuts";
+import {
+  GUIDE_DISMISSED,
+  GUIDE_GOT_IT,
+  GUIDE_OPEN_HELP,
+  GUIDE_TITLE,
+  HELP_BLOCKED_RECORDING,
+  getGuideSteps,
+  helpClosedNotice,
+  helpOpenNotice,
+} from "../lib/onboardingText";
+import { dismissGuide, isGuideDismissed } from "../lib/onboardingPrefs";
 
 // "0:15", "1:22", "1:04:10" -> seconds. Same shape as the timestamps
 // getInterventionPoints() already returns (see Timeline.jsx's own copy of
@@ -88,24 +105,7 @@ function computeFocusTransform(region) {
 // YT.PlayerState codes -> the names used by playerState below.
 const PLAYER_STATE_NAMES = { 0: "ended", 1: "playing", 2: "paused", 3: "buffering" };
 
-// Single source for the on-page list and the spoken version (Alt+K).
 const RATES = [0.75, 1, 1.25, 1.5, 2];
-
-const SHORTCUTS = [
-  ["Alt+P", "Play, pause or resume the lecture"],
-  ["Alt+L", "Listen to or pause the explanation audio"],
-  ["Alt+N", "Next moment"],
-  ["Alt+B", "Previous moment"],
-  ["Alt+R", "Read: jump to the start of the explanation"],
-  ["Alt+. / Alt+,", "Listen faster / slower"],
-  ["Alt+M", "Start or stop a voice note"],
-  ["Alt+K", "Hear this list"],
-];
-const SHORTCUTS_SPOKEN =
-  "Keyboard shortcuts. " +
-  SHORTCUTS.map(([k, d]) =>
-    `${k.replace("Alt+. / Alt+,", "Alt plus period, or Alt plus comma").replace("+", " plus ")}: ${d}.`,
-  ).join(" ");
 
 /**
  * Explanation — opens when the user clicks a point on the Timeline.
@@ -129,6 +129,8 @@ export default function Explanation({
   onRetryProcessing: onRetryProcessingRaw = null,
   onOpenTimeline: onOpenTimelineRaw = () => {}, // jumps to Timeline for this same lecture, carrying the active point over
   onStartPractice: onStartPracticeRaw = null, // opens Practice for this lecture; the button exists only when this is provided (feature flag)
+  registerHelpGuard = null, // App's Help dialog: this screen registers beforeHelp()/afterHelp() through this (see "Help" below)
+  onOpenHelp = null, // opens App's Help dialog (given the click event so focus can come back); the guide card's Help button exists only when this is provided
 }) {
   const initialLectureMetadata = lectureMetadata || bookmarkData || {};
   const initialPoint = bookmarkData
@@ -298,6 +300,18 @@ export default function Explanation({
   // TTS is started (blocks it while a note is being recorded), requestLeave(fn)
   // to save or discard an unsaved recording before navigating away. Null until mounted.
   const voiceControlRef = useRef(null);
+  // True from the moment Help is asked for until it closes. While true, NOTHING may start the lecture
+  // video or the explanation audio: three paths check it (the audio effect's autoplay, the
+  // intervention watcher, and the player's PLAYING event), and the shortcut listener ignores keys.
+  const helpOpenRef = useRef(false);
+  // What Help paused or stopped, so its closing message is honest. { paused: null|"lecture"|"both", stoppedNote }
+  const helpDidRef = useRef({ paused: null, stoppedNote: false });
+
+  // The "How this lecture works" card (dismissed for good with its own flag, never synapse_intro_seen,
+  // which belongs to the spoken introduction and is untouched). Read once when the screen opens.
+  const [guideVisible, setGuideVisible] = useState(() => !isGuideDismissed());
+  // Both Presentation mode buttons, by mode, so "Got it" can return focus to whichever is selected.
+  const modeButtonRefs = useRef({});
 
   // "accessibility" (default) | "study" — purely a rendering choice. Every
   // piece of state/data-fetching/pauseOwner/timestamp-watching above is
@@ -529,7 +543,13 @@ export default function Explanation({
           // playing, pause ownership is released either way.
           onStateChange: (e) => {
             const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
-            if (e.data === YT_PLAYING) {
+            // Help guard: a PLAYING event that arrives while Help is open (buffering finishing, a
+            // play command that was already on its way) is undone every time it happens. The
+            // pause owner is left as it is and nothing is confirmed or announced.
+            const heldByHelp = e.data === YT_PLAYING && helpOpenRef.current;
+            if (heldByHelp) {
+              e.target?.pauseVideo?.();
+            } else if (e.data === YT_PLAYING) {
               setPauseOwner(null);
               // While a voice note is being recorded this pauses the lecture again
               // (and says why); otherwise it just stops a voice note that is playing.
@@ -537,7 +557,7 @@ export default function Explanation({
             }
             const name = PLAYER_STATE_NAMES[e.data] ?? "unstarted";
             setPlayerState(name);
-            confirmPlayerStateRef.current(name);
+            if (!heldByHelp) confirmPlayerStateRef.current(name);
           },
         },
       });
@@ -590,6 +610,9 @@ export default function Explanation({
 
     const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
     const interval = setInterval(() => {
+      // Help guard: while Help is open this watcher does nothing (it could otherwise pause, switch
+      // moment and start the explanation audio).
+      if (helpOpenRef.current) return;
       const player = playerRef.current;
       if (!player || typeof player.getPlayerState !== "function") return;
       if (player.getPlayerState() !== YT_PLAYING) return;
@@ -842,10 +865,14 @@ export default function Explanation({
     // intervention-owned pauses once their prepared audio becomes available.
     if (autoPlay || shouldAutoPlayPrepared) {
       autoPlayPreparationKeyRef.current = null;
-      audio
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch(() => {});
+      // Help guard: audio that finishes loading while Help is open must not start. It is not
+      // queued either: nothing plays when Help closes, the learner presses Listen.
+      if (!helpOpenRef.current) {
+        audio
+          .play()
+          .then(() => setIsPlaying(true))
+          .catch(() => {});
+      }
     }
 
     return () => {
@@ -1150,6 +1177,75 @@ export default function Explanation({
     setPauseOwner("user");
   };
 
+  // ---- Help -----------------------------------------------------------------
+  // App's Help dialog is a modal over this screen: this screen stays mounted, so the player and the
+  // processing job are untouched. App calls beforeHelp() first (it may refuse) and afterHelp() when
+  // the dialog closes.
+  //
+  //  - Refused while a voice note is being prepared or recorded (the microphone is in use).
+  //  - helpOpenRef is set BEFORE any media is touched, so the three guards are already in force.
+  //  - A playing voice note is stopped. If the lecture or the explanation was really playing, both are
+  //    paused through pauseLectureAudio() and the learner owns the pause from then on. A play() that has
+  //    not resolved yet counts as playing (an element's `paused` is already false from the moment play()
+  //    is called), and pausing it cancels it. If nothing was playing nothing else changes (an
+  //    intervention pause stays an intervention pause).
+  //  - The returned notice is shown in the dialog and read as its description. This screen is inert
+  //    while Help is open, so announce() from here would not be heard.
+  //  - Closing NEVER resumes anything: afterHelp() only clears the hold and, if Help had paused or
+  //    stopped something, announces that it is still so.
+  const beforeHelp = () => {
+    const voice = voiceControlRef.current?.beforeHelp?.() ?? { blocked: false, stoppedNote: false };
+    if (voice.blocked) {
+      announce(HELP_BLOCKED_RECORDING);
+      return { blocked: true };
+    }
+    helpOpenRef.current = true;
+    const playing = window.YT?.PlayerState?.PLAYING ?? 1;
+    const buffering = window.YT?.PlayerState?.BUFFERING ?? 3;
+    const videoState = playerRef.current?.getPlayerState?.();
+    const videoActive = videoState === playing || videoState === buffering;
+    const audioActive = isPlaying || audioRef.current?.paused === false;
+    let paused = null;
+    if (videoActive || audioActive) {
+      pauseLectureAudio();
+      paused = audioActive ? "both" : "lecture";
+    }
+    const did = { paused, stoppedNote: Boolean(voice.stoppedNote) };
+    helpDidRef.current = did;
+    return { blocked: false, notice: helpOpenNotice(did) };
+  };
+  // Hides the card. Focus moves to the currently selected Presentation mode button BEFORE the card
+  // goes away, so it is never lost; nothing is read out except the one short polite message.
+  const dismissGuideCard = () => {
+    dismissGuide();
+    modeButtonRefs.current[presentationMode]?.focus();
+    setGuideVisible(false);
+    announce(GUIDE_DISMISSED);
+  };
+
+  const afterHelp = () => {
+    helpOpenRef.current = false;
+    const message = helpClosedNotice(helpDidRef.current);
+    helpDidRef.current = { paused: null, stoppedNote: false };
+    if (message) announce(message);
+  };
+  // Re-pointed every render so the guard registered once always reaches the current state.
+  const helpHandlersRef = useRef({});
+  useEffect(() => {
+    helpHandlersRef.current = { beforeHelp, afterHelp };
+  });
+  useEffect(() => {
+    if (!registerHelpGuard) return undefined;
+    const unregister = registerHelpGuard({
+      beforeHelp: () => helpHandlersRef.current.beforeHelp(),
+      afterHelp: () => helpHandlersRef.current.afterHelp(),
+    });
+    return () => {
+      helpOpenRef.current = false;
+      unregister();
+    };
+  }, [registerHelpGuard]);
+
   // Every way out of this screen goes through here, so an unsaved voice note
   // gets a Save / Discard / Stay choice instead of being lost.
   const leaveScreen = (go) => {
@@ -1341,9 +1437,11 @@ export default function Explanation({
   // after every render.
   const shortcutsRef = useRef({});
   useEffect(() => {
+    // Keyed by the action ids in lib/shortcuts.js (the table that also drives the on-page list, the
+    // spoken list and Help). A key with no action here, or an action with no key there, fails a test.
     shortcutsRef.current = {
-      KeyP: handleLectureToggle,
-      KeyL: () => {
+      playPause: handleLectureToggle,
+      listen: () => {
         if (!audioRef.current) {
           announce("Explanation audio isn't ready yet.");
           return;
@@ -1355,29 +1453,31 @@ export default function Explanation({
         }
         togglePlay();
       },
-      KeyN: () =>
+      next: () =>
         nextPoint
           ? selectPointManually(nextPoint.id)
           : announce("This is the last moment."),
-      KeyB: () =>
+      previous: () =>
         prevPoint
           ? selectPointManually(prevPoint.id)
           : announce("This is the first moment."),
-      KeyR: () => explanationHeadingRef.current?.focus(),
-      Period: () => stepRate(1),
-      Comma: () => stepRate(-1),
-      KeyM: () => {
+      read: () => explanationHeadingRef.current?.focus(),
+      faster: () => stepRate(1),
+      slower: () => stepRate(-1),
+      voiceNote: () => {
         if (!voiceControlRef.current) {
           announce("Voice notes aren't ready yet.");
           return;
         }
         voiceControlRef.current.toggle();
       },
-      KeyK: () => announce(SHORTCUTS_SPOKEN),
+      hearShortcuts: () => announce(LECTURE_SHORTCUTS_SPOKEN),
     };
   });
   useEffect(() => {
     const onKeyDown = (e) => {
+      // Help is open: the lecture shortcuts must not reach the lecture, whatever has focus.
+      if (helpOpenRef.current) return;
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const t = e.target;
       if (t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text"))) return;
@@ -1387,7 +1487,8 @@ export default function Explanation({
         e.code ||
         ({ ".": "Period", ",": "Comma" }[e.key] ??
           (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : ""));
-      const action = shortcutsRef.current[code];
+      const actionId = lectureActionForCode(code);
+      const action = actionId && shortcutsRef.current[actionId];
       if (!action) return;
       e.preventDefault();
       action();
@@ -1398,6 +1499,36 @@ export default function Explanation({
 
   // ---- Render --------------------------------------------------------------
 
+  // The "How this lecture works" card. It is ONE element, rendered in exactly one of two places below:
+  // in Accessibility mode where it always was (right after the moment's subtitle, so it is the first
+  // thing after the heading), and in Study mode after the video, so it does not push the video down.
+  const showGuideCard = guideVisible && !isProcessing && !processingError && allPoints.length > 0;
+  const guideCard = showGuideCard ? (
+    <section
+      aria-labelledby="guide-heading"
+      className="mb-6 px-4 py-4 bg-surface border border-border-subtle rounded-radius-md"
+    >
+      <h2 id="guide-heading" className="text-[17px] font-semibold text-text-primary mb-2">
+        {GUIDE_TITLE}
+      </h2>
+      <ol className="list-decimal pl-5 space-y-1 text-[14px] text-text-secondary">
+        {getGuideSteps(presentationMode).map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={dismissGuideCard} className="ds-btn-primary">
+          {GUIDE_GOT_IT}
+        </button>
+        {onOpenHelp && (
+          <button type="button" onClick={onOpenHelp} className="ds-btn-secondary">
+            {GUIDE_OPEN_HELP}
+          </button>
+        )}
+      </div>
+    </section>
+  ) : null;
+
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
       <nav aria-label="Main navigation">
@@ -1407,16 +1538,19 @@ export default function Explanation({
       {/* Workbench — main reading column + (Study mode) Lecture Details
           column, capped and centered on very wide screens so the layout
           doesn't stretch edge-to-edge; the Sidebar above stays flush-left
-          like on every other screen. */}
-      <div className="flex flex-1 max-w-[1400px] mx-auto overflow-hidden">
+          like on every other screen. From 1024px (Tailwind `lg`) they sit
+          side by side; below that (a narrow window, or a high zoom level)
+          the details panel stacks UNDER the main column and the workbench
+          scrolls as one, so the reading column never collapses. */}
+      <div className="flex flex-col lg:flex-row flex-1 max-w-[1400px] mx-auto overflow-y-auto lg:overflow-hidden">
         {/* Main reading area */}
         <main
           id="main-content"
           tabIndex={-1}
           aria-label="Lecture explanation"
-          className="flex-1 overflow-y-auto outline-none"
+          className="flex-none lg:flex-1 lg:overflow-y-auto outline-none"
         >
-          <div className="max-w-[720px] px-14 py-10">
+          <div className="max-w-[720px] px-6 lg:px-14 py-10">
             {/* Inline processing status — replaces the old full-screen Processing route */}
             {(isProcessing || processingError) && (
               <div
@@ -1591,6 +1725,8 @@ export default function Explanation({
                   : "Your lecture is being prepared — the first explanation will appear here shortly."}
             </p>
 
+            {presentationMode === "accessibility" && guideCard}
+
             {preparationUiKind !== "ready" && (
               <section
                 aria-label="Explanation preparation"
@@ -1654,6 +1790,7 @@ export default function Explanation({
             >
               <button
                 type="button"
+                ref={(el) => (modeButtonRefs.current.accessibility = el)}
                 aria-pressed={presentationMode === "accessibility"}
                 onClick={() => switchPresentationMode("accessibility")}
                 className={
@@ -1667,6 +1804,7 @@ export default function Explanation({
               </button>
               <button
                 type="button"
+                ref={(el) => (modeButtonRefs.current.study = el)}
                 aria-pressed={presentationMode === "study"}
                 onClick={() => switchPresentationMode("study")}
                 className={
@@ -1768,6 +1906,9 @@ export default function Explanation({
                 </div>
               )}
             </div>
+
+            {/* Study mode: the guide card sits here, after the video and before the tabs. */}
+            {presentationMode === "study" && guideCard}
 
             {/* Visual View / Structured View tabs — Study Mode only.
               Accessibility Mode has no visual viewport to switch between
@@ -2343,11 +2484,11 @@ export default function Explanation({
                 Keyboard shortcuts
               </h2>
               <ul className="space-y-1 text-[14px] text-text-secondary">
-                {SHORTCUTS.map(([keys, what]) => (
-                  <li key={keys}>
-                    <span className="font-mono text-text-primary">{keys}</span>
+                {LECTURE_SHORTCUT_ROWS.map((row) => (
+                  <li key={rowKeys(row)}>
+                    <span className="font-mono text-text-primary">{rowKeys(row)}</span>
                     {" — "}
-                    {what}
+                    {row.description}
                   </li>
                 ))}
               </ul>
@@ -2363,7 +2504,7 @@ export default function Explanation({
         {presentationMode === "study" && (
           <aside
             aria-label="Lecture details"
-            className="w-[300px] bg-background border-l border-border-subtle p-5 overflow-y-auto shrink-0"
+            className="w-full lg:w-[300px] bg-background border-t lg:border-t-0 lg:border-l border-border-subtle p-5 lg:overflow-y-auto shrink-0"
           >
             {/* Only real entry point into Timeline — carries the current
             point along via onOpenTimeline so Timeline opens with it already

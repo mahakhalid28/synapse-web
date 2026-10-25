@@ -8,7 +8,9 @@ Every shortcut found in the source, checked against its event handler. Tags: **I
 
 ## Lecture screen (Accessibility and Study mode)
 
-Handler: one `window` `keydown` listener in `src/components/Explanation.jsx` (effect near the end of the component logic), dispatching to `shortcutsRef.current[code]`. The handler map is rebuilt every render so it always sees current state. The user-visible list is the `SHORTCUTS` array at the top of the file, shown in the "Keyboard shortcuts" section on the page and spoken by Alt+K (`SHORTCUTS_SPOKEN`).
+Handler: one `window` `keydown` listener in `src/components/Explanation.jsx` (effect near the end of the component logic). It turns the key's `code` into an **action id** with `lectureActionForCode()` and calls `shortcutsRef.current[actionId]`. The handler map is keyed by action id (`playPause`, `listen`, `next`, `previous`, `read`, `faster`, `slower`, `voiceNote`, `hearShortcuts`) and is rebuilt every render so it always sees current state.
+
+**Single source of truth: `src/lib/shortcuts.js`.** Its `LECTURE_SHORTCUT_ROWS` table (and `HOME_SHORTCUT_ROWS` for Alt+S) feeds the key lookup above, the "Keyboard shortcuts" list on the lecture page, the list in the Help dialog, and the text Alt+K speaks (`LECTURE_SHORTCUTS_SPOKEN`). Help and the first-lecture guide card take their keys from it (`keysForAction`), so no copy retypes a key. `src/lib/shortcuts.test.jsx` fails if the table and the real handlers disagree (**AUTOMATED**; see [Keeping the list accurate](#keeping-the-list-accurate)).
 
 | Shortcut | Action | Handler (in `Explanation.jsx`) | Status / conditions |
 |---|---|---|---|
@@ -24,7 +26,7 @@ Handler: one `window` `keydown` listener in `src/components/Explanation.jsx` (ef
 
 **Matching rules (listener):** requires `altKey` and **no** Ctrl, Meta or Shift; `preventDefault()` is called when a mapped shortcut fires. The key is identified by `e.code` (`KeyP`, `Period`, `Comma`…), falling back to `e.key` when `e.code` is empty (some assistive-technology key events). On non-US keyboard layouts `e.code` reflects the physical key rather than the printed letter [general browser behaviour; not tested here — **Unverified**].
 
-**Exclusions:** the listener returns early when the event target is a `<textarea>` or `<input type="text">` (so typing in the Ask field and similar fields is never hijacked). Targets such as `<select>` (Listening speed) and buttons are *not* excluded.
+**Exclusions:** the listener returns early when the event target is a `<textarea>` or `<input type="text">` (so typing in the Ask field and similar fields is never hijacked). Targets such as `<select>` (Listening speed) and buttons are *not* excluded. The listener also returns early, whatever has focus, **while the Help dialog is open** (`helpOpenRef`): none of the lecture shortcuts reach the lecture then (**AUTOMATED**).
 
 **ARIA hints:** `aria-keyshortcuts` is set on the Play lecture button (`Alt+P`), Listen button (`Alt+L`), Previous (`Alt+B`), Next (`Alt+N`), the speed select (`Alt+. Alt+,`) and the Record voice note button (`Alt+M`, which also shows "Alt+M" as visible text).
 
@@ -56,7 +58,7 @@ Evidence for Alt+M (labels explained in [VOICE_NOTES_VALIDATION](./VOICE_NOTES_V
 
 | Shortcut | Action | Handler | Status |
 |---|---|---|---|
-| **Alt+S** | Focus (and select) the "Lecture link or search" field | `src/hooks/useFocusShortcut.js`, used in `Home.jsx` and `SubjectLectures.jsx` | Implemented. Unlike the lecture-screen handler, this listener does **not** skip text inputs, so it also works while typing in the field. Not active on other screens (the hook is only mounted on those two). |
+| **Alt+S** | Focus (and select) the "Lecture link or search" field | `src/hooks/useFocusShortcut.js`, used in `Home.jsx` and `SubjectLectures.jsx` | Implemented. Unlike the lecture-screen handler, this listener does **not** skip text inputs, so it also works while typing in the field. Not active on other screens (the hook is only mounted on those two). It is listed in Help from `HOME_SHORTCUT_ROWS`; the hook still takes its own letter (`"s"`), and a test checks that pressing the row's key focuses the field. |
 
 The Home intro paragraph tells the user: "press Alt plus S at any time to jump to the search field."
 
@@ -68,6 +70,8 @@ The Home intro paragraph tells the user: "press Alt plus S at any time to jump t
 | Enter | Ask field | Submit the question (native `<form>` submit) | `AskLecture.jsx` |
 | Escape | Navbar settings panel | Close and return focus to the gear | `onKeyDown` on the panel container in `Navbar.jsx` |
 | ← → ↑ ↓ / Home / End | Study-mode Visual/Structured tabs | Move and select tab (automatic activation) | `handleVisualTabKeyDown` |
+| Escape | Help dialog | Close it and return focus to the button that opened it | Document-level listener in `HelpDialog.jsx` (dialog only; not a new app-wide shortcut) |
+| Tab / Shift+Tab | Help dialog | Stay inside the dialog (Close, then the scrollable contents, then back) | Same listener; the screen behind is also `inert` |
 | Tab / Shift+Tab / Enter / Space | Everything else | Native button/input behaviour | — |
 
 ## Conflicts and notes
@@ -78,6 +82,22 @@ The Home intro paragraph tells the user: "press Alt plus S at any time to jump t
 - **No global shortcut** works across screens (the lecture shortcuts are bound only while `Explanation` is mounted; Alt+S only on Home/Subject).
 - The lecture handler runs on `window` for the lifetime of `Explanation`; the Ask source-jump buttons and moment lists are ordinary buttons without their own shortcuts.
 
-## Adding a shortcut
+## Help and onboarding
 
-See [DEVELOPMENT_GUIDE](./DEVELOPMENT_GUIDE.md#add-a-keyboard-shortcut).
+- There is **no keyboard shortcut for Help** (deliberately: none was invented). It is the **Help** button in the top bar, before Settings in Tab order, and the "How Synapse works" button on Welcome.
+- Help is a modal dialog over the current screen, not a navigation. Opening it over a lecture pauses what is playing and stops a playing voice note; closing it never resumes anything; it is refused while a voice note is being recorded. Tests: `Explanation.help.test.jsx`, `App.help.test.jsx` (**AUTOMATED**, fakes only).
+- The Help dialog lists every shortcut in this document, by screen, from `src/lib/shortcuts.js`. The first-lecture guide card ("How this lecture works") names Alt+P, Alt+L and Alt+K from the same table.
+- **Not verified:** none of the Help or guide-card behaviour has been run in a real window or with a screen reader. Real `inert` behaviour, focus return, and the order of the dialog description and the "Help closed…" announcement against focus-return speech still need an NVDA pass.
+
+## Keeping the list accurate
+
+To add or change a lecture-screen shortcut:
+
+1. Add a row (or an action in an existing row) to `LECTURE_SHORTCUT_ROWS` in `src/lib/shortcuts.js`: a unique `id`, the `code`, and the display `key` (for example `{ id: "x", code: "KeyX", key: "Alt+X" }`). The spoken text and the lists in Help and on the page follow automatically. Pick a letter that avoids Electron's default menu mnemonics F, E, V, W, H (a test enforces this) and existing shortcuts.
+2. Add the handler to the `shortcutsRef.current = { … }` object in `Explanation.jsx`, **keyed by the same action id**.
+3. If it has a visible button, add `aria-keyshortcuts` with the same key (a test checks that every `aria-keyshortcuts` on the lecture screen is a key in the table).
+4. Update the table above and this document.
+
+`shortcuts.test.jsx` fails if the keys the lecture screen reacts to differ from the table, if a row's wording or the spoken text changes, or if Help or guide copy mentions a key the table does not have. `Explanation.jsx` no longer has a `SHORTCUTS` array, so the steps in [DEVELOPMENT_GUIDE](./DEVELOPMENT_GUIDE.md#add-a-keyboard-shortcut) that mention one are out of date; this section supersedes them (that file was not changed).
+
+For a field-focus shortcut on another screen, the DEVELOPMENT_GUIDE note about `useFocusShortcut(inputRef, "x")` still applies; also add a row to `HOME_SHORTCUT_ROWS` so Help lists it.

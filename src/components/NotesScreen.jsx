@@ -10,6 +10,7 @@ import { useAnnouncer } from "../hooks/useAnnouncer.js";
 import { formatClock } from "../hooks/useVoiceRecorder.js";
 import { listAllNotes as defaultListAll } from "../lib/notesStore.js";
 import { groupByLecture } from "../lib/voiceNoteText.js";
+import { helpClosedNotice, helpOpenNotice } from "../lib/onboardingText.js";
 
 export default function NotesScreen({
   onNavigate = () => {},
@@ -17,6 +18,7 @@ export default function NotesScreen({
   listAll = defaultListAll,
   deleteNote,
   playerOptions = {},
+  registerHelpGuard = null, // App's Help dialog asks this screen to stop a playing note first
 }) {
   const [notes, setNotes] = useState([]);
   const [load, setLoad] = useState({ state: "loading", message: "" });
@@ -47,6 +49,32 @@ export default function NotesScreen({
   useEffect(() => { void refresh(); }, [refresh]);
 
   const player = useNotePlayer({ announce, ...playerOptions });
+
+  // Help (a modal over this screen). A note that is playing, or still loading, is stopped when Help
+  // opens: the same thing its own Play button does, so its position is not kept. Nothing is resumed
+  // when Help closes. The "closed" message is announced here once this screen is no longer inert.
+  const helpLatest = useRef({});
+  useEffect(() => {
+    helpLatest.current = { playingId: player.playingId, stop: player.stop, announce };
+  });
+  const noteStoppedForHelp = useRef(false);
+  useEffect(() => {
+    if (!registerHelpGuard) return undefined;
+    return registerHelpGuard({
+      beforeHelp: () => {
+        const { playingId, stop } = helpLatest.current;
+        const stoppedNote = Boolean(playingId);
+        if (stoppedNote) stop();
+        noteStoppedForHelp.current = stoppedNote;
+        return { blocked: false, notice: helpOpenNotice({ stoppedNote }) };
+      },
+      afterHelp: () => {
+        const message = helpClosedNotice({ stoppedNote: noteStoppedForHelp.current });
+        noteStoppedForHelp.current = false;
+        if (message) helpLatest.current.announce(message);
+      },
+    });
+  }, [registerHelpGuard]);
   const groups = useMemo(() => groupByLecture(notes), [notes]);
 
   return (
