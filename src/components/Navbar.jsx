@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useVoiceActions } from "../voice/voiceActions";
 
 const THEMES = [
   {
@@ -21,7 +22,8 @@ const THEMES = [
   },
 ];
 
-export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
+// `leading` is an optional control placed before the settings gear (the voice Talk button).
+export default function Navbar({ theme = "paper", onThemeChange = () => {}, leading = null }) {
   const [open, setOpen] = useState(false);
   const panelRef        = useRef(null);
   const gearRef         = useRef(null);
@@ -39,12 +41,15 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {} }) {
     return () => document.removeEventListener("mousedown", handle);
   }, [open]);
 
+  useVoiceActions({ open_settings: () => setOpen(true), close_settings: () => setOpen(false) });
+
   return (
     <header className="h-14 shrink-0 bg-surface border-b border-border-subtle flex items-center px-4 relative z-40 font-sans">
+      {leading && <div className="ml-auto flex items-center">{leading}</div>}
       {/* Right side: gear button + panel */}
       <div
         ref={panelRef}
-        className="ml-auto relative"
+        className={leading ? "relative" : "ml-auto relative"}
         onKeyDown={(e) => {
           if (e.key === "Escape" && open) {
             setOpen(false);

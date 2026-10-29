@@ -60,6 +60,19 @@ Evidence for Alt+M (labels explained in [VOICE_NOTES_VALIDATION](./VOICE_NOTES_V
 
 The Home intro paragraph tells the user: "press Alt plus S at any time to jump to the search field."
 
+## Voice control (every screen, behind a feature flag)
+
+Handler: one `window` `keydown` listener in `src/voice/VoiceControl.jsx`, mounted in the top bar by `App.jsx` only when `voiceControlEnabled()` is true (`VITE_VOICE_CONTROL_ENABLED`; on in development, off in a production build and in tests). Design and limits: [voice-control.md](./voice-control.md).
+
+| Shortcut | Action | Status / conditions |
+|---|---|---|
+| **Alt+T** | Start listening; press Alt+T again to stop (a toggle, nothing to hold) | AUTOMATED only (fake microphone and player). Works on every screen and, like Alt+S, while typing in a text field. Ignored with Ctrl, Shift or Meta (so AltGr layouts do not trigger it) and for key repeat. Listening also stops by itself after silence, with no speech, or at 12 s. |
+| **Space (held)** on the focused **Talk** button | Hold to talk: listens while the key is down | AUTOMATED only. Not global: Space stays a normal key everywhere else. If listening was started with Alt+T, Space on the button stops it. |
+
+Alt+M (voice note) is ignored while voice control is listening, and voice control will not start while a voice note is recording: they share the microphone. Alt+T is **not yet** in the on-page shortcut list or the spoken list (Alt+K); that waits until voice control is on for everyone.
+
+NOT TESTED: a real microphone, the real YouTube player, Electron, NVDA/JAWS/Narrator, non-US layouts.
+
 ## Other keyboard behaviour (not Alt shortcuts)
 
 | Key | Where | Behaviour | Handler |

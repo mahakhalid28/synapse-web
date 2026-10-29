@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
 import { getLibrary, removeFromLibrary } from "../storage";
+import { useVoiceActions } from "../voice/voiceActions";
 
 export default function LibraryScreen({
   onNavigate = () => {},
@@ -37,6 +38,25 @@ export default function LibraryScreen({
     if (target === "heading") h1Ref.current?.focus();
     else document.getElementById(`lib-remove-${target}`)?.focus();
   }, [library]);
+
+  // By voice: the same actions as each card's buttons (numbered as they appear in the list).
+  const itemAt = (index) => {
+    const item = visible[index - 1];
+    if (!item) throw new Error("no such item");
+    return item;
+  };
+  useVoiceActions(
+    {
+      open_item: ({ index }) => onOpenExplanation({ ...itemAt(index), autoPlay: false }),
+      play_item_audio: ({ index }) => onOpenExplanation({ ...itemAt(index), autoPlay: true }),
+      remove_item: ({ index }) => handleRemove(itemAt(index).id),
+    },
+    () => ({
+      items: visible.map((item, i) => ({
+        ref: String(item.id), kind: "library_item", label: item.title || item.videoTitle || "Saved explanation", position: i + 1,
+      })),
+    }),
+  );
 
   const handleRemove = (id) => {
     const removed = library.find((item) => item.id === id);

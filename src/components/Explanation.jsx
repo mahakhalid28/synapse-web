@@ -23,6 +23,8 @@ import CategoryIcon from "./CategoryIcon";
 import AskLecture from "./AskLecture";
 import { formatTimestamp } from "../lib/askApi";
 import VoiceNotes from "./VoiceNotes";
+import { useVoiceAudio, useVoiceAudioPort } from "../voice/voiceAudio.js";
+import { useVoiceActions } from "../voice/voiceActions.js";
 
 // "0:15", "1:22", "1:04:10" -> seconds. Same shape as the timestamps
 // getInterventionPoints() already returns (see Timeline.jsx's own copy of
@@ -1150,6 +1152,38 @@ export default function Explanation({
     setPauseOwner("user");
   };
 
+  // Voice control (src/voice): the global talk control pauses everything through this port before it listens,
+  // checks that it is quiet, and afterwards puts back only what was playing, including who owns the pause (so
+  // an explanation that was holding the lecture paused still resumes it when it ends). It never touches the
+  // player or the audio element itself.
+  const voiceAudio = useVoiceAudio();
+  useVoiceAudioPort({
+    getSnapshot: () => ({
+      lecture: PLAYER_STATE_NAMES[playerRef.current?.getPlayerState?.()] ?? "unknown",
+      explanation: audioRef.current ? (audioRef.current.paused ? "paused" : "playing") : "none",
+      pauseOwner: pauseOwnerRef.current,
+    }),
+    pause: pauseLectureAudio,
+    restore: ({ lecture, explanation, pauseOwner }) => {
+      setPauseOwner(pauseOwner);
+      if (explanation) {
+        audioRef.current
+          ?.play()
+          .then(() => setIsPlaying(true))
+          .catch(() => {});
+      }
+      if (lecture) playerRef.current?.playVideo?.();
+    },
+    isNoteBusy: () => voiceControlRef.current?.isBusy?.() === true,
+    // Alt+T while a note is recording stops the note (same as Alt+M); returns true when it did
+    stopNote: () => {
+      if (voiceControlRef.current?.isRecording?.() !== true) return false;
+      voiceControlRef.current.toggle();
+      return true;
+    },
+  });
+
+
   // Every way out of this screen goes through here, so an unsaved voice note
   // gets a Save / Discard / Stay choice instead of being lost.
   const leaveScreen = (go) => {
@@ -1308,6 +1342,73 @@ export default function Explanation({
     checking: "Checking explanation readiness…",
   }[preparationUiKind] || "Loading this explanation…";
 
+  // By voice: the same handlers the shortcuts and buttons on this screen call (src/voice). The functions are
+  // only called later, so it does not matter that some are declared further down.
+  const voiceMoment = (index) => {
+    const point = sortedPoints[index - 1];
+    if (!point) announce(`There is no moment ${index}.`);
+    else selectPointManually(point.id);
+  };
+  const voiceAudio_ = () => {
+    if (!audioRef.current) throw new Error("explanation audio is not ready");
+    return audioRef.current;
+  };
+  useVoiceActions(
+    {
+      play_lecture: () => handleResumeVideo(),
+      pause_lecture: () => pauseLectureAudio(),
+      seek_lecture: ({ direction, seconds }) => {
+        const player = playerRef.current;
+        if (!player?.seekTo) throw new Error("player not ready");
+        const now = player.getCurrentTime?.() ?? 0;
+        player.seekTo(Math.max(0, now + (direction === "forward" ? seconds : -seconds)), true);
+      },
+      play_explanation: () => {
+        voiceAudio_().play().then(() => setIsPlaying(true)).catch(() => {});
+      },
+      pause_explanation: () => {
+        voiceAudio_().pause();
+        setIsPlaying(false);
+      },
+      replay_explanation: () => {
+        const audio = voiceAudio_();
+        audio.currentTime = 0;
+        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+      },
+      next_moment: () => (nextPoint ? selectPointManually(nextPoint.id) : announce("This is the last moment.")),
+      previous_moment: () => (prevPoint ? selectPointManually(prevPoint.id) : announce("This is the first moment.")),
+      go_to_moment: ({ index }) => voiceMoment(index),
+      change_listening_speed: ({ direction }) => stepRate(direction === "faster" ? 1 : -1),
+      toggle_voice_note: () => voiceControlRef.current?.toggle(),
+      toggle_bookmark: () => handleBookmark(),
+      export_pdf: () => handleExportPDF(),
+      set_presentation_mode: ({ mode: next }) => setPresentationMode(next),
+      change_text_size: ({ change }) =>
+        setTextScale((s) => Math.round(Math.min(1.6, Math.max(0.85, s + (change === "larger" ? 0.15 : -0.15))) * 100) / 100),
+      toggle_high_contrast: () => setHighContrast((on) => !on),
+      open_timeline: () => onOpenTimeline(effectiveActivePointId),
+      skip_explanation: () => handleSkipExplanation(),
+      retry_explanation: () => {
+        if (preparationUiKind === "failed") handleRetryPreparation();
+        else handleCheckPreparationAgain();
+      },
+      set_visual_tab: ({ tab }) => setVisualTab(tab),
+      toggle_focus: () => {
+        if (!focusRegion) throw new Error("no focus region");
+        handleToggleFocus();
+      },
+      export_audio: () => handleExportAudio(),
+      ...(onStartPracticeRaw ? { start_practice: () => onStartPractice() } : {}),
+    },
+    () => ({
+      videoId,
+      currentMomentRef: effectiveActivePointId,
+      presentationMode,
+      lectureSeconds: playerRef.current?.getCurrentTime?.(),
+      items: sortedPoints.map((p, i) => ({ ref: String(p.id), kind: "moment", label: p.title || "Moment", position: i + 1 })),
+    }),
+  );
+
   const isLecturePlaying =
     playerState === "playing" || playerState === "buffering";
   const lectureControlLabel = !playerReady
@@ -1367,6 +1468,8 @@ export default function Explanation({
       Period: () => stepRate(1),
       Comma: () => stepRate(-1),
       KeyM: () => {
+        // The microphone belongs to voice control while it is listening; a voice note cannot start then.
+        if (voiceAudio.isTurnActive()) return;
         if (!voiceControlRef.current) {
           announce("Voice notes aren't ready yet.");
           return;

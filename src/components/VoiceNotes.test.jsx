@@ -229,6 +229,19 @@ describe("control object used by the lecture screen", () => {
     expect(env.saved).toHaveLength(1);
   });
 
+  it("isBusy() is false when idle, true while getting ready and recording, false again after saving (voice control must not start while busy)", async () => {
+    const { controlRef } = await setup();
+    expect(controlRef.current.isBusy()).toBe(false);
+    act(() => { void controlRef.current.toggle(); });
+    await advance(0);
+    expect(controlRef.current.isBusy()).toBe(true); // preparing: the microphone is being opened
+    await advance(SETTLE_MS);
+    expect(controlRef.current.isBusy()).toBe(true); // recording
+    await advance(2000);
+    await act(async () => { await controlRef.current.toggle(); });
+    expect(controlRef.current.isBusy()).toBe(false);
+  });
+
   it("lectureStarted() while recording pauses again, explains, and reports 'blocked'", async () => {
     const { controlRef, props } = await setup();
     await startRecording();

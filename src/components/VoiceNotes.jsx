@@ -134,6 +134,10 @@ export default function VoiceNotes({
     if (!controlRef) return undefined;
     controlRef.current = {
       toggle: () => recorder.toggle(),
+      // true while the microphone is taken or an unsaved recording is waiting; voice control must not start then
+      // true while the note is actually recording (or about to): Alt+T then stops it instead of refusing
+      isRecording: () => ["preparing", "recording"].includes(recorder.getStatus()),
+      isBusy: () => ["preparing", "recording", "saving", "draft", "save_failed"].includes(recorder.getStatus()),
       lectureStarted: () => {
         const current = recorder.getStatus();
         if (current === "preparing" || current === "recording") {

@@ -13,6 +13,9 @@ import { getLibrary } from "./storage";
 import { isValidVideoId } from "./lib/askApi";
 import { quizEnabled } from "./lib/quizFlag";
 import { safeStartSeconds } from "./lib/lectureSeek";
+import { voiceControlEnabled } from "./lib/voiceFlag";
+import VoiceControl from "./voice/VoiceControl";
+import { useVoiceActions } from "./voice/voiceActions";
 
 function App() {
   const [screen,  setScreen]  = useState("home");
@@ -273,6 +276,42 @@ function App() {
   };
 
   // ── Active screen ──────────────────────────────────────────────────────────
+  // By voice: navigation, theme and subject browsing, through the same handlers the sidebar and Home call.
+  useVoiceActions(
+    {
+      navigate_home: () => handleNavigate("home"),
+      navigate_library: () => handleNavigate("library"),
+      navigate_bookmarks: () => handleNavigate("bookmarks"),
+      navigate_notes: () => handleNavigate("notes"),
+      set_theme: ({ theme: next }) => setTheme(next),
+      explore_subject: ({ subject }) => handleExploreSubject(subject),
+      // "Play my most recent explanation" from any screen; Home registers the same command for its own card.
+      ...(screen === "home" ? {} : {
+        continue_lecture: () => {
+          const last = getLibrary().find((e) => e.videoId);
+          if (!last) {
+            const err = new Error("nothing to continue");
+            err.spoken = "You haven't opened any lecture yet.";
+            throw err;
+          }
+          handleProcess({
+            url: `https://youtube.com/watch?v=${last.videoId}`,
+            videoId: last.videoId,
+            mode: last.mode || "standard",
+            resume: true,
+            metadata: {
+              title: last.videoTitle || last.title, videoTitle: last.videoTitle || last.title,
+              videoAuthor: last.videoAuthor || "", videoDuration: last.videoDuration || "",
+              videoThumbnail: last.videoThumbnail || "", videoId: last.videoId, lastMoment: last.title, timestamp: last.timestamp,
+            },
+          });
+        },
+      }),
+    },
+    // The last lecture opened stays the subject of questions asked from other screens.
+    () => ({ screen, video_id: jobInfo?.videoId }),
+  );
+
   let activeScreen;
 
   if (screen === "timeline" && jobInfo) {
@@ -376,7 +415,11 @@ function App() {
       >
         Skip to main content
       </a>
-      <Navbar theme={theme} onThemeChange={setTheme} />
+      <Navbar
+        theme={theme}
+        onThemeChange={setTheme}
+        leading={voiceControlEnabled() ? <VoiceControl /> : null}
+      />
       <div className="flex-1 overflow-hidden">
         {activeScreen}
       </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
 import { getBookmarks, removeBookmark } from "../storage";
+import { useVoiceActions } from "../voice/voiceActions";
 
 export default function BookmarksScreen({
   onNavigate     = () => {},
@@ -23,6 +24,22 @@ export default function BookmarksScreen({
     if (target === "heading") h1Ref.current?.focus();
     else document.getElementById(`bm-remove-${target}`)?.focus();
   }, [bookmarks]);
+
+  // By voice: the same actions as each card's buttons (numbered as they appear in the list).
+  const bookmarkAt = (index) => {
+    const bm = bookmarks[index - 1];
+    if (!bm) throw new Error("no such bookmark");
+    return bm;
+  };
+  useVoiceActions(
+    {
+      open_item: ({ index }) => onOpenBookmark(bookmarkAt(index)),
+      remove_item: ({ index }) => handleRemove(bookmarkAt(index).id),
+    },
+    () => ({
+      items: bookmarks.map((bm, i) => ({ ref: String(bm.id), kind: "bookmark", label: bm.title || "Bookmark", position: i + 1 })),
+    }),
+  );
 
   const handleRemove = (id) => {
     const removed = bookmarks.find((bm) => bm.id === id);

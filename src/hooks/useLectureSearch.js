@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { extractYouTubeId, searchVideos } from "../lib/lectureSearch";
+import { useVoiceActions } from "../voice/voiceActions";
 
 // Single source of truth for the "paste a link or search" flow used by the
 // Home screen and the subject-scoped lecture views — keeps status copy,
@@ -192,6 +193,46 @@ export default function useLectureSearch({
     }
     wasValidUrlRef.current = nextValid;
   }, []);
+
+  // By voice: the same actions the search box and result list offer (src/voice).
+  useVoiceActions(
+    {
+      search_lectures: ({ query }) => {
+        setUrl(query);
+        return runSearch(query);
+      },
+      select_result: ({ index }) => {
+        const video = results[index - 1];
+        if (!video) throw new Error("no such result");
+        setUrl(`https://youtube.com/watch?v=${video.videoId}`);
+        setResults([]);
+      },
+      start_lecture: () => handleSubmit(),
+      paste_url: async () => {
+        let text;
+        try {
+          text = ((await navigator.clipboard.readText()) || "").trim();
+        } catch {
+          const err = new Error("clipboard blocked");
+          err.spoken = "I couldn't read the clipboard. Allow clipboard access for this site, or paste with Control V.";
+          throw err;
+        }
+        if (!text) {
+          const err = new Error("clipboard empty");
+          err.spoken = "The clipboard is empty. Copy a YouTube link first.";
+          throw err;
+        }
+        setUrl(text);
+        setValidationError(null);
+        const valid = Boolean(extractYouTubeId(text));
+        setStatusMessage(valid ? "YouTube lecture detected." : "Pasted from the clipboard.");
+        wasValidUrlRef.current = valid;
+      },
+    },
+    () => ({
+      items: results.map((video, i) => ({ ref: video.videoId, kind: "result", label: video.title, position: i + 1 })),
+    }),
+  );
 
   return {
     url,
