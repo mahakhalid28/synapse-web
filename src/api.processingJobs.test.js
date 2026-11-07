@@ -77,6 +77,9 @@ describe("durable video processing jobs", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).output_mode).toBe("detailed");
     expect(statuses.map(({ stage }) => stage)).toEqual(["queued", "persisting", "complete"]);
     expect(statuses.every((status) => !("progress" in status))).toBe(true);
+    expect(statuses.at(-1).message).toBe(
+      "Initial processing completed. Explanations may still be preparing.",
+    );
   });
 
   it("handles a cache hit without polling but still loads persisted data", async () => {
@@ -182,5 +185,144 @@ describe("durable video processing jobs", () => {
     expect(second).toBe(first);
     await first;
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("posts video cancellation without a body and accepts a truthful cancelling state", async () => {
+    const fetchMock = vi.fn().mockReturnValueOnce(response(202, job({
+      status: "cancelling",
+      stage: "cancelling",
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { cancelProcessingJob } = await import("./api.js");
+
+    await expect(cancelProcessingJob(JOB_ID, VIDEO_ID)).resolves.toMatchObject({
+      status: "cancelling",
+      stage: "cancelling",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://127.0.0.1:8000/video/processing-jobs/${JOB_ID}/cancel`,
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+  });
+
+  it("continues polling through cancelling and stops at backend-confirmed cancelled", async () => {
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(response(202, job({ status: "running" })))
+      .mockReturnValueOnce(response(200, job({ status: "cancelling", stage: "cancelling" })))
+      .mockReturnValueOnce(response(200, job({ status: "cancelled", stage: "cancelled" })));
+    vi.stubGlobal("fetch", fetchMock);
+    const statuses = [];
+    const { processVideo } = await import("./api.js");
+
+    const processing = processVideo({
+      videoId: VIDEO_ID,
+      mode: "standard",
+      onStatus: (status) => statuses.push(status),
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(processing).resolves.toMatchObject({ status: "cancelled" });
+    expect(statuses.map(({ status }) => status)).toEqual([
+      "running",
+      "cancelling",
+      "cancelled",
+    ]);
+    expect(statuses.at(-1).message).toBe(
+      "Processing cancelled. Completed explanations are saved.",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("resumes the same job, polls it, and then loads committed interventions", async () => {
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(response(202, job({ status: "queued", stage: "queued" })))
+      .mockReturnValueOnce(response(200, job({ status: "succeeded", stage: "complete", attempt_count: 2 })))
+      .mockReturnValueOnce(response(200, persisted()));
+    vi.stubGlobal("fetch", fetchMock);
+    const statuses = [];
+    const { resumeProcessingJob } = await import("./api.js");
+
+    const resumed = resumeProcessingJob(JOB_ID, VIDEO_ID, {
+      onStatus: (status) => statuses.push(status),
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(resumed).resolves.toMatchObject({ jobId: JOB_ID, status: "succeeded" });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `http://127.0.0.1:8000/video/processing-jobs/${JOB_ID}/resume`,
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    expect(statuses.map(({ status }) => status)).toEqual(["queued", "succeeded"]);
+  });
+
+  it("reconnects to a persisted job with GET and never creates a replacement", async () => {
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(response(200, job({ status: "cancelled", stage: "cancelled" })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { reconnectProcessingJob } = await import("./api.js");
+
+    await expect(reconnectProcessingJob(JOB_ID, VIDEO_ID)).resolves.toMatchObject({
+      jobId: JOB_ID,
+      status: "cancelled",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `http://127.0.0.1:8000/video/processing-jobs/${JOB_ID}`,
+    );
+    expect(fetchMock.mock.calls[0][1].method).toBeUndefined();
+  });
+
+  it("surfaces the structured single-video busy conflict safely", async () => {
+    const fetchMock = vi.fn().mockReturnValueOnce(response(409, {
+      detail: {
+        code: "video_processing_busy",
+        active_video_id: "otherVideo1",
+        active_job_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { processVideo, VideoProcessingError } = await import("./api.js");
+
+    const error = await processVideo({ videoId: VIDEO_ID, mode: "standard" })
+      .catch((reason) => reason);
+    expect(error).toBeInstanceOf(VideoProcessingError);
+    expect(error).toMatchObject({
+      kind: "busy",
+      status: 409,
+      code: "video_processing_busy",
+      retryable: false,
+    });
+    expect(error.message).toBe("Another video is currently being processed.");
+  });
+
+  it("times out a stuck Cancel request without claiming cancellation succeeded", async () => {
+    const fetchMock = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { cancelProcessingJob, VideoProcessingError } = await import("./api.js");
+
+    const cancelling = cancelProcessingJob(JOB_ID, VIDEO_ID).catch((reason) => reason);
+    await vi.advanceTimersByTimeAsync(15_000);
+    const error = await cancelling;
+    expect(error).toBeInstanceOf(VideoProcessingError);
+    expect(error.kind).toBe("network");
+    expect(error.message).not.toContain("cancelled");
+  });
+
+  it("accepts completion when Cancel races with an already-completed backend job", async () => {
+    const fetchMock = vi.fn().mockReturnValueOnce(response(200, job({
+      status: "succeeded",
+      stage: "complete",
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { cancelProcessingJob } = await import("./api.js");
+
+    await expect(cancelProcessingJob(JOB_ID, VIDEO_ID)).resolves.toMatchObject({
+      status: "succeeded",
+      stage: "complete",
+    });
   });
 });

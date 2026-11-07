@@ -18,6 +18,10 @@ const SAMPLE_SEARCH_RESULTS = [
 
 const h = vi.hoisted(() => {
   const processVideo = vi.fn();
+  const cancelProcessingJob = vi.fn();
+  const resumeProcessingJob = vi.fn();
+  const reconnectProcessingJob = vi.fn();
+  const getExplanationPreparationStatus = vi.fn();
   const getInterventionPoints = vi.fn(async () => ({
     videoTitle: "Intro to Calculus Part 1",
     duration: "4:13",
@@ -43,11 +47,22 @@ const h = vi.hoisted(() => {
       setTimeout(() => options.events?.onReady?.({ target: this }), 0);
     }
   }
-  return { processVideo, getInterventionPoints, FakePlayer };
+  return {
+    processVideo,
+    cancelProcessingJob,
+    resumeProcessingJob,
+    reconnectProcessingJob,
+    getExplanationPreparationStatus,
+    getInterventionPoints,
+    FakePlayer,
+  };
 });
 
 vi.mock("./api.js", () => ({
   processVideo: h.processVideo,
+  cancelProcessingJob: h.cancelProcessingJob,
+  resumeProcessingJob: h.resumeProcessingJob,
+  reconnectProcessingJob: h.reconnectProcessingJob,
   resetMockTimer: vi.fn(),
   getInterventionPoints: h.getInterventionPoints,
   getExplanation: vi.fn(async (pointId) => ({
@@ -61,9 +76,7 @@ vi.mock("./api.js", () => ({
     audio_file_path: null,
     output_mode: "standard",
   })),
-  getExplanationPreparationStatus: vi.fn(async () => ({
-    items: [{ intervention_id: "pt-1", timestamp: 75, status: "ready", error_code: null, attempt_count: 1 }],
-  })),
+  getExplanationPreparationStatus: h.getExplanationPreparationStatus,
   getPreparedExplanation: vi.fn(async (pointId) => ({
     explanation: { pointId, subtitle: "Saved explanation", paragraphs: ["Explanation text."], keyInsight: "Key insight." },
     audio: { audio_file_path: null, audio_error: null },
@@ -95,7 +108,15 @@ vi.mock("./lib/notesStore.js", () => ({
 describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     h.processVideo.mockReset();
+    h.cancelProcessingJob.mockReset();
+    h.resumeProcessingJob.mockReset();
+    h.reconnectProcessingJob.mockReset();
+    h.getExplanationPreparationStatus.mockReset();
+    h.getExplanationPreparationStatus.mockResolvedValue({
+      items: [{ intervention_id: "pt-1", timestamp: 75, status: "ready", error_code: null, attempt_count: 1 }],
+    });
     h.getInterventionPoints.mockClear();
     vi.stubGlobal(
       "Audio",
@@ -136,7 +157,7 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
     fireEvent.click(resultButton);
 
     // Verify processVideo was called exactly once with correct videoId, URL, and defaultDepth
-    expect(h.processVideo).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(h.processVideo).toHaveBeenCalledTimes(1));
     expect(h.processVideo).toHaveBeenCalledWith(expect.objectContaining({
       url: "https://www.youtube.com/watch?v=vid_short_1",
       videoId: "vid_short_1",
@@ -145,7 +166,7 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
 
     // Verify repeated click while submitting is ignored
     fireEvent.click(resultButton);
-    expect(h.processVideo).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(h.processVideo).toHaveBeenCalledTimes(1));
 
     // Transition to Explanation screen and player
     await waitFor(() => {
@@ -189,7 +210,7 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
     });
   });
 
-  it("announces real backend stages without a percentage and aborts polling on cancel", async () => {
+  it("announces real backend stages and sends durable video cancellation", async () => {
     let finishProcessing;
     h.processVideo.mockImplementationOnce((options) => {
       const pending = new Promise((resolve) => {
@@ -203,6 +224,13 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
       }));
       return pending;
     });
+    h.cancelProcessingJob.mockResolvedValueOnce({
+      job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      video_id: "dQw4w9WgXcQ",
+      status: "cancelled",
+      stage: "cancelled",
+      attempt_count: 1,
+    });
 
     render(<App />);
     const input = screen.getByLabelText("Lecture link or search");
@@ -214,11 +242,14 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
     const stage = await screen.findByText("Saving the lecture and intervention moments.");
     expect(stage.getAttribute("role")).toBe("status");
     expect(stage.textContent).not.toContain("%");
-    const signal = h.processVideo.mock.calls[0][0].signal;
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(signal.aborted).toBe(true);
+    await waitFor(() => expect(h.cancelProcessingJob).toHaveBeenCalledTimes(1));
+    expect(h.cancelProcessingJob.mock.calls[0].slice(0, 2)).toEqual([
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "dQw4w9WgXcQ",
+    ]);
+    expect(screen.getByRole("button", { name: "Resume Processing" })).toBeTruthy();
     finishProcessing({ jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
-    await screen.findByText("Start a study session");
   });
 
   it("retries the same durable job after a processing failure", async () => {
@@ -252,6 +283,188 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
     });
   });
 
+  it("prevents duplicate Cancel requests and rejects an older running response", async () => {
+    let reportStatus;
+    let resolveCancel;
+    h.processVideo.mockImplementationOnce((options) => {
+      reportStatus = options.onStatus;
+      queueMicrotask(() => reportStatus({
+        jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        status: "running",
+        stage: "processing",
+        attempt_count: 1,
+        message: "Processing the lecture…",
+      }));
+      return new Promise(() => {});
+    });
+    h.cancelProcessingJob.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCancel = resolve;
+    }));
+
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Lecture link or search"), {
+      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Start learning/i }));
+    await screen.findByText("Processing the lecture…");
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    fireEvent.click(cancel);
+    fireEvent.click(cancel);
+    expect(h.cancelProcessingJob).toHaveBeenCalledTimes(1);
+
+    resolveCancel({
+      job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      video_id: "dQw4w9WgXcQ",
+      status: "cancelling",
+      stage: "cancelling",
+      attempt_count: 1,
+    });
+    await screen.findByText("Cancelling processing…");
+    reportStatus({
+      jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      status: "running",
+      stage: "processing",
+      attempt_count: 1,
+      message: "Stale running response",
+    });
+    expect(screen.queryByText("Stale running response")).toBeNull();
+  });
+
+  it("resumes the same cancelled job once and preserves it on Resume failure", async () => {
+    let reportStatus;
+    h.processVideo.mockImplementationOnce((options) => {
+      reportStatus = options.onStatus;
+      queueMicrotask(() => reportStatus({
+        jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        status: "running",
+        stage: "processing",
+        attempt_count: 1,
+        message: "Processing the lecture…",
+      }));
+      return new Promise(() => {});
+    });
+    h.cancelProcessingJob.mockResolvedValueOnce({
+      job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      video_id: "dQw4w9WgXcQ",
+      status: "cancelled",
+      stage: "cancelled",
+      attempt_count: 1,
+    });
+    h.resumeProcessingJob.mockRejectedValueOnce(
+      new Error("Could not resume processing. Please check your connection and try again."),
+    );
+
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Lecture link or search"), {
+      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Start learning/i }));
+    await screen.findByText("Processing the lecture…");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    const resume = await screen.findByRole("button", { name: "Resume Processing" });
+    fireEvent.click(resume);
+    fireEvent.click(resume);
+    await waitFor(() => expect(h.resumeProcessingJob).toHaveBeenCalledTimes(1));
+    expect(h.resumeProcessingJob.mock.calls[0].slice(0, 2)).toEqual([
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "dQw4w9WgXcQ",
+    ]);
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not resume processing");
+    expect(screen.getByRole("button", { name: "Resume Processing" })).toBeTruthy();
+  });
+
+  it("shows a Cancel failure inline while authoritative polling continues", async () => {
+    h.processVideo.mockImplementationOnce((options) => {
+      queueMicrotask(() => options.onStatus({
+        jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        status: "running",
+        stage: "processing",
+        message: "Processing the lecture…",
+      }));
+      return new Promise(() => {});
+    });
+    h.cancelProcessingJob.mockRejectedValueOnce(
+      new Error("Could not cancel processing. The current backend status is unchanged."),
+    );
+
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Lecture link or search"), {
+      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Start learning/i }));
+    await screen.findByText("Processing the lecture…");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not cancel processing",
+    );
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("reconnects a refreshed persisted processing job without submitting a new one", async () => {
+    sessionStorage.setItem("synapse_active_processing_job", JSON.stringify({
+      processingJobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      videoId: "dQw4w9WgXcQ",
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      mode: "standard",
+      metadata: null,
+    }));
+    h.reconnectProcessingJob.mockImplementationOnce((_jobId, _videoId, options) => {
+      options.onStatus({
+        jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        videoId: "dQw4w9WgXcQ",
+        status: "cancelled",
+        stage: "cancelled",
+        attempt_count: 1,
+        message: "Processing cancelled. Completed explanations are saved.",
+      });
+      return Promise.resolve({
+        jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        videoId: "dQw4w9WgXcQ",
+        status: "cancelled",
+      });
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Resume Processing" })).toBeTruthy();
+    expect(h.reconnectProcessingJob).toHaveBeenCalledWith(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "dQw4w9WgXcQ",
+      expect.any(Object),
+    );
+    expect(h.processVideo).not.toHaveBeenCalled();
+  });
+
+  it("keeps initial processing completion distinct from pending explanations", async () => {
+    h.processVideo.mockImplementationOnce((options) => Promise.resolve().then(() => {
+      options.onStatus({
+        jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        videoId: "dQw4w9WgXcQ",
+        status: "succeeded",
+        stage: "complete",
+        attempt_count: 1,
+        message: "Initial processing completed. Explanations may still be preparing.",
+      });
+      return { jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+    }));
+    h.getExplanationPreparationStatus.mockResolvedValue({
+      items: [{ intervention_id: "pt-1", timestamp: 75, status: "generating", error_code: null, attempt_count: 1 }],
+    });
+
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Lecture link or search"), {
+      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Start learning/i }));
+
+    expect(await screen.findByText("Generating explanations…")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(screen.queryByText("Processing completed.")).toBeNull();
+  });
+
   it("preserves URL paste workflow unchanged", async () => {
     h.processVideo.mockResolvedValueOnce({ jobId: "dQw4w9WgXcQ" });
 
@@ -268,7 +481,7 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
     const startBtn = screen.getByRole("button", { name: /Start learning/i });
     fireEvent.click(startBtn);
 
-    expect(h.processVideo).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(h.processVideo).toHaveBeenCalledTimes(1));
     expect(h.processVideo).toHaveBeenCalledWith(expect.objectContaining({
       url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       videoId: "dQw4w9WgXcQ",

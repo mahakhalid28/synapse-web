@@ -108,6 +108,18 @@ describe("P3 preparation API", () => {
     expect(result.items.map((entry) => entry.intervention_id)).toEqual([INTERVENTION_ID, later]);
   });
 
+  it("accepts the backend cancelled preparation state without treating it as malformed", async () => {
+    fetch.mockReturnValueOnce(response(200, {
+      video_id: VIDEO_ID,
+      output_mode: "explanatory",
+      items: [item({ status: "cancelled", attempt_count: 1 })],
+    }));
+    const { getExplanationPreparationStatus } = await import("./api.js");
+
+    await expect(getExplanationPreparationStatus(VIDEO_ID, "standard"))
+      .resolves.toMatchObject({ items: [expect.objectContaining({ status: "cancelled" })] });
+  });
+
   it.each([
     ["unknown status", [item({ status: "complete" })]],
     ["duplicate IDs", [item(), item({ timestamp: 20 })]],

@@ -23,6 +23,10 @@ import CategoryIcon from "./CategoryIcon";
 import AskLecture from "./AskLecture";
 import { formatTimestamp } from "../lib/askApi";
 import VoiceNotes from "./VoiceNotes";
+import {
+  resolveStructuredView,
+  STRUCTURED_VIEW_DEMO_LABEL,
+} from "../lib/structuredViewDemo";
 
 // "0:15", "1:22", "1:04:10" -> seconds. Same shape as the timestamps
 // getInterventionPoints() already returns (see Timeline.jsx's own copy of
@@ -127,6 +131,10 @@ export default function Explanation({
   startSeconds = null, // cue the lecture at this time (opening a voice note); null = use the moment's own time
   onNavigate: onNavigateRaw = () => {},
   onRetryProcessing: onRetryProcessingRaw = null,
+  onCancelProcessing: onCancelProcessingRaw = null,
+  onResumeProcessing: onResumeProcessingRaw = null,
+  processingAction = null,
+  processingActionError = null,
   onOpenTimeline: onOpenTimelineRaw = () => {}, // jumps to Timeline for this same lecture, carrying the active point over
   onStartPractice: onStartPracticeRaw = null, // opens Practice for this lecture; the button exists only when this is provided (feature flag)
 }) {
@@ -242,11 +250,20 @@ export default function Explanation({
   const effectivePreparationPhase = preparationContext === preparationContextKey
     ? preparationPhase
     : "idle";
+  const explanationsPreparing =
+    !API_MOCK_MODE &&
+    processingStatus?.status === "succeeded" &&
+    allPoints.length > 0 &&
+    !allPoints.every((point) => {
+      const status = preparationById.get(point.id)?.status;
+      return status === "ready" || status === "failed";
+    });
 
   // Inline processing status (replaces the old full-screen Processing
   // route) — tracks the same processVideo() promise Home kicked off.
   const [isProcessing, setIsProcessing] = useState(Boolean(promise));
   const [processingError, setProcessingError] = useState(null);
+  const [processingErrorRetryable, setProcessingErrorRetryable] = useState(true);
 
   // Audio playback — real HTML5 Audio via TTS backend
   const audioRef = useRef(null);
@@ -386,6 +403,7 @@ export default function Explanation({
       .catch((error) => {
         if (!active || error?.name === "AbortError") return;
         setIsProcessing(false);
+        setProcessingErrorRetryable(error?.retryable !== false);
         setProcessingError(
           error?.message || "Something went wrong while preparing this lecture.",
         );
@@ -399,7 +417,7 @@ export default function Explanation({
   // Load all points (for the left sidebar contents list) — waits for
   // processing to finish, since the backend has nothing to return until then.
   useEffect(() => {
-    if (isProcessing || processingError) return;
+    if (isProcessing || processingError || processingStatus?.status === "cancelled") return;
     getInterventionPoints(jobId, videoId)
       .then((result) => {
         setAllPoints(result.points);
@@ -446,13 +464,19 @@ export default function Explanation({
           err?.message || "Could not load this lecture's intervention moments.",
         );
       });
-  }, [jobId, videoId, pointId, isProcessing, processingError]);
+  }, [jobId, videoId, pointId, isProcessing, processingError, processingStatus?.status]);
 
   // One cancellable poll loop covers every intervention in the selected
   // lecture/mode. It stops once all known points are ready or failed, and is
   // restarted explicitly after retry. No per-intervention timers are created.
   useEffect(() => {
-    if (API_MOCK_MODE || isProcessing || processingError || !preparationPointKey) return;
+    if (
+      API_MOCK_MODE ||
+      isProcessing ||
+      processingError ||
+      processingStatus?.status === "cancelled" ||
+      !preparationPointKey
+    ) return;
 
     let cancelled = false;
     let timer = null;
@@ -481,7 +505,7 @@ export default function Explanation({
         setPreparationPhase("available");
         const terminal = [...pointIds].every((id) => {
           const status = next.get(id)?.status;
-          return status === "ready" || status === "failed";
+          return status === "ready" || status === "failed" || status === "cancelled";
         });
         if (terminal) return;
       } catch (error) {
@@ -504,7 +528,7 @@ export default function Explanation({
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [videoId, mode, preparationPointKey, preparationContextKey, preparationPollVersion, isProcessing, processingError]);
+  }, [videoId, mode, preparationPointKey, preparationContextKey, preparationPollVersion, isProcessing, processingError, processingStatus?.status]);
 
   // Initialize the real YouTube player once the API is loaded and the
   // container is in the DOM. Kept alive for the life of this videoId —
@@ -1160,8 +1184,14 @@ export default function Explanation({
   const onNavigate = (key) => leaveScreen(() => onNavigateRaw(key));
   const retryProcessing = () => {
     setProcessingError(null);
+    setProcessingErrorRetryable(true);
     setIsProcessing(true);
     onRetryProcessingRaw?.();
+  };
+  const resumeProcessing = () => {
+    setProcessingError(null);
+    setIsProcessing(true);
+    onResumeProcessingRaw?.();
   };
   const onOpenTimeline = (id) => leaveScreen(() => onOpenTimelineRaw(id));
   const onStartPractice = () => leaveScreen(() => onStartPracticeRaw());
@@ -1181,17 +1211,14 @@ export default function Explanation({
     timestamp: "",
   };
 
-  // Factual-only rows for Structured View / Accessible visual information —
-  // carried directly on the intervention object itself (per-point, from the
-  // normalized data in api.js's MOCK_INTERVENTIONS — the same shape a real
-  // backend response will eventually provide), not looked up by category.
-  // null when this point has no structured data — the Structured View tab
-  // itself doesn't render in that case (Study Mode) / the section is
-  // omitted entirely (Accessibility Mode), instead of fabricating rows or
-  // showing a tab that only ever resolves to an empty state.
-  const structuredRows = activePoint.structured?.rows ?? null;
+  // Real per-intervention structured rows always win. A dedicated temporary
+  // frontend flag may supply the original mock example when they are absent;
+  // those rows are explicitly labeled as demo data in both presentations.
+  const structuredView = resolveStructuredView(activePoint);
+  const structuredRows = structuredView?.rows ?? null;
+  const structuredRowsAreDemo = structuredView?.isDemo ?? false;
 
-  // Only includes "structured" when this point actually has it, so
+  // Only includes "structured" when resolved rows exist, so
   // keyboard navigation (arrows/Home/End) never lands on a tab that isn't
   // rendered.
   const VISUAL_TAB_ORDER = structuredRows ? ["visual", "structured"] : ["visual"];
@@ -1418,7 +1445,8 @@ export default function Explanation({
         >
           <div className="max-w-[720px] px-14 py-10">
             {/* Inline processing status — replaces the old full-screen Processing route */}
-            {(isProcessing || processingError) && (
+            {(isProcessing || processingError || explanationsPreparing ||
+              processingStatus?.status === "cancelled") && (
               <div
                 role={processingError ? "alert" : undefined}
                 className="mb-6 flex items-center gap-3 px-4 py-3 bg-surface border border-border-subtle rounded-radius-md"
@@ -1428,7 +1456,7 @@ export default function Explanation({
                     <span className="text-[14px] text-text-secondary flex-1">
                       {processingError}
                     </span>
-                    {onRetryProcessingRaw && (
+                    {onRetryProcessingRaw && processingErrorRetryable && (
                       <button
                         onClick={retryProcessing}
                         className="text-[14px] text-accent hover:text-text-primary underline underline-offset-2 focus-ring rounded-radius-sm"
@@ -1445,22 +1473,39 @@ export default function Explanation({
                   </>
                 ) : (
                   <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+                    {processingStatus?.status !== "cancelled" && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+                    )}
                     {/* Announce only durable backend stage changes. */}
                     <span
-                      role="status"
+                      role={processingActionError ? "alert" : "status"}
                       aria-live="polite"
                       aria-atomic="true"
                       className="text-[14px] text-text-secondary flex-1"
                     >
-                      {processingStatus?.message || "Creating or joining the shared processing job."}
+                      {processingActionError ||
+                        (explanationsPreparing ? "Generating explanations…" : processingStatus?.message) ||
+                        "Creating or joining the shared processing job."}
                     </span>
-                    <button
-                      onClick={() => onNavigate("home")}
-                      className="text-[14px] text-text-secondary hover:text-text-primary underline underline-offset-2 focus-ring rounded-radius-sm"
-                    >
-                      Cancel
-                    </button>
+                    {processingStatus?.status === "cancelled" ? (
+                      <button
+                        onClick={resumeProcessing}
+                        disabled={Boolean(processingAction)}
+                        className="text-[14px] text-text-secondary hover:text-text-primary underline underline-offset-2 focus-ring rounded-radius-sm disabled:opacity-50"
+                      >
+                        {processingAction === "resume" ? "Resuming…" : "Resume Processing"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={onCancelProcessingRaw}
+                        disabled={Boolean(processingAction) || processingStatus?.status === "cancelling"}
+                        className="text-[14px] text-text-secondary hover:text-text-primary underline underline-offset-2 focus-ring rounded-radius-sm disabled:opacity-50"
+                      >
+                        {processingAction === "cancel" || processingStatus?.status === "cancelling"
+                          ? "Cancelling…"
+                          : "Cancel"}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -1876,7 +1921,10 @@ export default function Explanation({
                         : "bg-surface border border-border-subtle")
                     }
                   >
-                    <ProvenanceLabel kind="video" className="mb-4" />
+                    <StructuredDataSourceLabel
+                      isDemo={structuredRowsAreDemo}
+                      className="mb-4"
+                    />
                     <dl className="space-y-3 m-0">
                       {structuredRows.map((row) => (
                         <div
@@ -1961,16 +2009,13 @@ export default function Explanation({
 
                 {/* Accessible visual information — Accessibility Mode's
                 non-visual replacement for the Study Mode "Structured View"
-                tab. Same underlying factual data (activePoint.structured),
+                tab. Uses the same resolved rows as Study Mode; temporary
+                demo rows carry an explicit non-video source label here too,
                 exposed as ordinary navigable DOM content rather than a tab,
                 since there's no visual viewport here to switch a tab
                 against. Never aria-live — this is substantive content the
-                student reads at their own pace. Omitted entirely (not a
-                "not available" message) when this point has no structured
-                data, per the reading order spec. Carries the same
-                ProvenanceLabel as Study Mode's Structured View tab (added
-                Phase 5) since it's the identical underlying factual data —
-                "From the video", not a Synapse interpretation. */}
+                student reads at their own pace. When no rows resolve, the
+                original unavailable-data message remains. */}
                 {presentationMode === "accessibility" && (
                   <div className="mb-7">
                     <h3
@@ -1984,7 +2029,10 @@ export default function Explanation({
                     </h3>
                     {structuredRows ? (
                       <>
-                    <ProvenanceLabel kind="video" className="mb-3" />
+                    <StructuredDataSourceLabel
+                      isDemo={structuredRowsAreDemo}
+                      className="mb-3"
+                    />
                     <dl className="space-y-2 m-0">
                       {structuredRows.map((row) => (
                         <div
@@ -2491,6 +2539,17 @@ export default function Explanation({
 /* ============================================================================
    Sub-components
    ============================================================================ */
+
+function StructuredDataSourceLabel({ isDemo, className = "" }) {
+  if (!isDemo) {
+    return <ProvenanceLabel kind="video" className={className} />;
+  }
+  return (
+    <div className={`text-[14px] text-text-muted ${className}`}>
+      {STRUCTURED_VIEW_DEMO_LABEL}
+    </div>
+  );
+}
 
 function ClockIcon() {
   return (

@@ -3,4 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { toHaveNoViolations } from "jest-axe";
 
 expect.extend(toHaveNoViolations);
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  sessionStorage.clear();
+});

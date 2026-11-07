@@ -8,11 +8,35 @@ import LibraryScreen from "./components/LibraryScreen";
 import NotesScreen from "./components/NotesScreen";
 import QuizScreen from "./components/QuizScreen";
 import Navbar from "./components/Navbar";
-import { processVideo, resetMockTimer } from "./api";
+import * as processingApi from "./api";
 import { getLibrary } from "./storage";
 import { isValidVideoId } from "./lib/askApi";
 import { quizEnabled } from "./lib/quizFlag";
 import { safeStartSeconds } from "./lib/lectureSeek";
+
+const PROCESSING_SESSION_KEY = "synapse_active_processing_job";
+
+function readProcessingSession() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(PROCESSING_SESSION_KEY));
+    return value?.processingJobId && value?.videoId ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldAcceptProcessingStatus(current, next) {
+  if (!current) return true;
+  const currentAttempt = Number(current.attempt_count ?? 0);
+  const nextAttempt = Number(next.attempt_count ?? currentAttempt);
+  if (nextAttempt !== currentAttempt) return nextAttempt > currentAttempt;
+  const terminal = new Set(["cancelled", "succeeded", "failed"]);
+  if (terminal.has(current.status)) return terminal.has(next.status);
+  if (current.status === "cancelling") {
+    return !["queued", "running"].includes(next.status);
+  }
+  return true;
+}
 
 function App() {
   const [screen,  setScreen]  = useState("home");
@@ -76,30 +100,31 @@ function App() {
   // ── HOME -> EXPLANATION (processing now happens inline, no blocking screen) ─
   const isProcessingRef = useRef(false);
   const processingControllerRef = useRef(null);
+  const processingActionControllerRef = useRef(null);
   const processingTokenRef = useRef(null);
+  const restoredProcessingRef = useRef(readProcessingSession());
+  const [processingAction, setProcessingAction] = useState(null);
+  const [processingActionError, setProcessingActionError] = useState(null);
 
   const startProcessing = (
     { url, videoId, mode, metadata = null },
-    { processingJobId = null, retry = false } = {},
+    { processingJobId = null, retry = false, reconnect = false, resume = false } = {},
   ) => {
-    if (isProcessingRef.current) return;
+    if (isProcessingRef.current && !resume) return;
     isProcessingRef.current = true;
     processingControllerRef.current?.abort();
     const controller = new AbortController();
     const token = Symbol("processing-request");
     processingControllerRef.current = controller;
     processingTokenRef.current = token;
-    resetMockTimer();
-    const promise = processVideo({
-      url,
-      videoId,
-      mode,
-      signal: controller.signal,
-      jobId: processingJobId,
-      retry,
-      onStatus: (status) => {
+    processingApi.resetMockTimer();
+    const onStatus = (status) => {
+        if (resume && status.status !== "cancelled") {
+          setProcessingAction(null);
+        }
         setJobInfo((current) =>
-          current?.processingToken === token
+          current?.processingToken === token &&
+          shouldAcceptProcessingStatus(current.processingStatus, status)
             ? {
                 ...current,
                 jobId: status.jobId || current.jobId,
@@ -108,12 +133,53 @@ function App() {
               }
             : current,
         );
-      },
-    })
+      };
+    const operation = Promise.resolve().then(() => reconnect
+      ? processingApi.reconnectProcessingJob(processingJobId, videoId, {
+            signal: controller.signal,
+            onStatus,
+          })
+      : resume
+        ? processingApi.resumeProcessingJob(processingJobId, videoId, {
+            signal: controller.signal,
+            onStatus,
+          })
+        : processingApi.processVideo({
+            url,
+            videoId,
+            mode,
+            signal: controller.signal,
+            jobId: processingJobId,
+            retry,
+            onStatus,
+          }));
+    const monitoredOperation = resume
+      ? operation.catch((error) => {
+          if (processingTokenRef.current === token) {
+            setProcessingActionError(
+              error?.message || "Could not resume processing. Please try again.",
+            );
+            setProcessingAction(null);
+          }
+          return { jobId: processingJobId, videoId, status: "cancelled" };
+        })
+      : operation;
+    const promise = monitoredOperation
+      .then((result) => {
+        if (result?.status !== "cancelled") {
+          try {
+            sessionStorage.removeItem(PROCESSING_SESSION_KEY);
+          } catch {
+            // Completion is unaffected when session storage is unavailable.
+          }
+        }
+        return result;
+      })
       .finally(() => {
         if (processingTokenRef.current === token) {
           isProcessingRef.current = false;
           processingControllerRef.current = null;
+          if (resume) setProcessingAction(null);
         }
       });
     setJobInfo({
@@ -124,11 +190,15 @@ function App() {
       mode,
       promise,
       processingToken: token,
-      processingStatus: {
-        status: "queued",
-        stage: "queued",
-        message: "Creating or joining the shared processing job.",
-      },
+      processingStatus: resume && jobInfo?.processingStatus
+        ? jobInfo.processingStatus
+        : {
+            status: "queued",
+            stage: "queued",
+            message: reconnect
+              ? "Reconnecting to this processing job…"
+              : "Creating or joining the shared processing job.",
+          },
       lectureMetadata: metadata,
     });
     setHasLeftHome(true);
@@ -152,7 +222,109 @@ function App() {
     );
   };
 
-  useEffect(() => () => processingControllerRef.current?.abort(), []);
+  const handleCancelProcessing = async () => {
+    const processingJobId = jobInfo?.processingJobId;
+    const token = jobInfo?.processingToken;
+    if (!processingJobId || processingAction) return;
+    setProcessingAction("cancel");
+    setProcessingActionError(null);
+    processingActionControllerRef.current?.abort();
+    const actionController = new AbortController();
+    processingActionControllerRef.current = actionController;
+    try {
+      const status = await processingApi.cancelProcessingJob(
+        processingJobId,
+        jobInfo.videoId,
+        { signal: actionController.signal },
+      );
+      setJobInfo((current) =>
+        current?.processingToken === token &&
+        shouldAcceptProcessingStatus(current.processingStatus, status)
+          ? { ...current, processingStatus: {
+              ...status,
+              jobId: status.job_id,
+              videoId: status.video_id,
+              message: status.status === "cancelled"
+                ? "Processing cancelled. Completed explanations are saved."
+                : status.status === "succeeded"
+                  ? "Initial processing completed. Explanations may still be preparing."
+                  : status.status === "failed"
+                    ? "Processing failed."
+                    : "Cancelling processing…",
+            } }
+          : current,
+      );
+    } catch (error) {
+      if (actionController.signal.aborted) return;
+      setProcessingActionError(
+        error?.message || "Could not cancel processing. The current backend status is unchanged.",
+      );
+    } finally {
+      if (processingActionControllerRef.current === actionController) {
+        processingActionControllerRef.current = null;
+        setProcessingAction(null);
+      }
+    }
+  };
+
+  const handleResumeProcessing = () => {
+    if (!jobInfo?.processingJobId || processingAction) return;
+    setProcessingAction("resume");
+    setProcessingActionError(null);
+    startProcessing(
+      {
+        url: jobInfo.url,
+        videoId: jobInfo.videoId,
+        mode: jobInfo.mode,
+        metadata: jobInfo.lectureMetadata,
+      },
+      { processingJobId: jobInfo.processingJobId, resume: true },
+    );
+  };
+
+  useEffect(() => {
+    const restored = restoredProcessingRef.current;
+    restoredProcessingRef.current = null;
+    if (!restored) return;
+    startProcessing(restored, {
+      processingJobId: restored.processingJobId,
+      reconnect: true,
+    });
+    // The persisted job is intentionally consumed once on mount. Re-running
+    // this effect would create competing monitors for the same durable job.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const processingJobId = jobInfo?.processingJobId;
+    if (!processingJobId) return;
+    try {
+      sessionStorage.setItem(PROCESSING_SESSION_KEY, JSON.stringify({
+        processingJobId,
+        videoId: jobInfo.videoId,
+        url: jobInfo.url,
+        mode: jobInfo.mode,
+        metadata: jobInfo.lectureMetadata,
+      }));
+    } catch {
+      // Processing remains usable when session storage is unavailable.
+    }
+  }, [
+    jobInfo?.processingJobId,
+    jobInfo?.processingStatus?.status,
+    jobInfo?.videoId,
+    jobInfo?.url,
+    jobInfo?.mode,
+    jobInfo?.lectureMetadata,
+  ]);
+
+  useEffect(() => () => {
+    processingTokenRef.current = null;
+    processingControllerRef.current?.abort();
+    processingActionControllerRef.current?.abort();
+    processingControllerRef.current = null;
+    processingActionControllerRef.current = null;
+  }, []);
 
   // ── TIMELINE -> EXPLANATION ────────────────────────────────────────────────
   const handleOpenPoint = (point) => {
@@ -252,7 +424,9 @@ function App() {
   // ── SIDEBAR NAVIGATION ─────────────────────────────────────────────────────
   const handleNavigate = (key) => {
     processingControllerRef.current?.abort();
+    processingActionControllerRef.current?.abort();
     processingControllerRef.current = null;
+    processingActionControllerRef.current = null;
     processingTokenRef.current = null;
     isProcessingRef.current = false;
     if (key === "home") {
@@ -302,6 +476,10 @@ function App() {
         startSeconds={jobInfo.startSeconds ?? null}
         onNavigate={handleNavigate}
         onRetryProcessing={handleRetryProcessing}
+        onCancelProcessing={handleCancelProcessing}
+        onResumeProcessing={handleResumeProcessing}
+        processingAction={processingAction}
+        processingActionError={processingActionError}
         onOpenTimeline={handleOpenTimeline}
         onStartPractice={quizEnabled() && isValidVideoId(jobInfo.videoId) ? handleStartQuiz : undefined}
       />

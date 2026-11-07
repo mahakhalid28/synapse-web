@@ -33,20 +33,33 @@ const VIDEO_PROCESSING_ERROR_MESSAGES = {
   network: "Can't reach the Synapse server. Check your connection and try again.",
   failed: "Synapse could not process this lecture. You can retry the job.",
   malformed: "The Synapse server returned unusable processing status.",
+  busy: "Another video is currently being processed.",
+  cancel: "Could not cancel processing. The current backend status is unchanged.",
+  resume: "Could not resume processing. Please check your connection and try again.",
   server: "Synapse could not process this lecture. Please try again.",
 };
 
 const PROCESSING_STAGE_MESSAGES = {
-  queued: "Waiting for lecture processing to start.",
-  processing: "Processing the lecture.",
+  queued: "Waiting to process video…",
+  processing: "Processing the lecture…",
   persisting: "Saving the lecture and intervention moments.",
-  preparing_explanations: "Starting background explanations.",
-  complete: "Lecture processing is complete.",
-  failed: "Lecture processing failed.",
+  preparing_explanations: "Generating explanations…",
+  cancelling: "Cancelling processing…",
+  cancelled: "Processing cancelled. Completed explanations are saved.",
+  complete: "Initial processing completed. Explanations may still be preparing.",
+  failed: "Processing failed.",
 };
 
-const PROCESSING_STATUSES = new Set(["queued", "running", "succeeded", "failed"]);
+const PROCESSING_STATUSES = new Set([
+  "queued",
+  "running",
+  "cancelling",
+  "cancelled",
+  "succeeded",
+  "failed",
+]);
 const PROCESSING_STAGES = new Set(Object.keys(PROCESSING_STAGE_MESSAGES));
+const PROCESSING_ACTION_TIMEOUT_MS = 15_000;
 const inFlightProcessing = new Map();
 
 export class InterventionPointsError extends Error {
@@ -75,7 +88,7 @@ export class VideoProcessingError extends Error {
     this.status = status;
     this.jobId = jobId;
     this.code = code;
-    this.retryable = ["network", "failed", "server"].includes(kind);
+    this.retryable = ["network", "failed", "server", "cancel", "resume"].includes(kind);
   }
 }
 
@@ -109,11 +122,15 @@ function validateProcessingJob(data, expectedVideoId) {
   return data;
 }
 
-async function readProcessingError(response, jobId = null) {
+async function readProcessingError(response, jobId = null, fallbackKind = "server") {
   let detail = "";
+  let code = null;
   try {
     const raw = (await response.json())?.detail;
     detail = typeof raw === "string" ? raw.toLowerCase() : "";
+    code = raw && typeof raw === "object" && typeof raw.code === "string"
+      ? raw.code
+      : null;
   } catch {
     // The response status still provides a safe classification.
   }
@@ -122,10 +139,11 @@ async function readProcessingError(response, jobId = null) {
     response.status === 410 ||
     /unavailable|private|removed|copyright/.test(detail);
   const invalid = response.status === 400 || response.status === 422;
+  const busy = response.status === 409 && code === "video_processing_busy";
   return new VideoProcessingError(
-    unavailable ? "unavailable" : invalid ? "invalid" : "server",
+    unavailable ? "unavailable" : invalid ? "invalid" : busy ? "busy" : fallbackKind,
     response.status,
-    { jobId },
+    { jobId, code },
   );
 }
 
@@ -170,7 +188,7 @@ async function waitForProcessingJob(initial, videoId, { signal, onStatus } = {})
   let networkFailures = 0;
   notifyProcessing(onStatus, snapshot);
 
-  while (snapshot.status === "queued" || snapshot.status === "running") {
+  while (["queued", "running", "cancelling"].includes(snapshot.status)) {
     await delay(Math.min(1000 * 2 ** networkFailures, 5000), signal);
     try {
       snapshot = await getJobStatus(snapshot.job_id, videoId, { signal });
@@ -209,6 +227,9 @@ async function runProcessing(
     signal,
     onStatus,
   });
+  if (completed.status === "cancelled") {
+    return { jobId: completed.job_id, videoId, status: "cancelled" };
+  }
   const data = await fetchPersistedInterventions(videoId, { signal });
   cachedResult = { videoId, data };
   return {
@@ -290,6 +311,96 @@ export async function getJobStatus(jobId, videoId, { signal } = {}) {
     throw new VideoProcessingError("malformed", response.status, { jobId });
   }
   return validateProcessingJob(data, videoId);
+}
+
+async function postProcessingAction(action, jobId, videoId, { signal } = {}) {
+  let response;
+  const requestController = new AbortController();
+  const forwardAbort = () => requestController.abort();
+  if (signal?.aborted) requestController.abort();
+  else signal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = setTimeout(() => requestController.abort(), PROCESSING_ACTION_TIMEOUT_MS);
+  try {
+    response = await fetch(
+      apiUrl(`/video/processing-jobs/${encodeURIComponent(jobId)}/${action}`),
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: requestController.signal,
+      },
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new VideoProcessingError("network", null, { jobId });
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+  if (!response.ok) {
+    throw await readProcessingError(response, jobId, action === "cancel" ? "cancel" : "resume");
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new VideoProcessingError("malformed", response.status, { jobId });
+  }
+  return validateProcessingJob(data, videoId);
+}
+
+/** Persist cancellation intent for the entire video. Polling remains authoritative. */
+export async function cancelProcessingJob(jobId, videoId, { signal } = {}) {
+  if (API_MOCK_MODE) {
+    return {
+      job_id: jobId,
+      video_id: videoId,
+      status: "cancelled",
+      stage: "cancelled",
+      attempt_count: 1,
+    };
+  }
+  return postProcessingAction("cancel", jobId, videoId, { signal });
+}
+
+/** Resume the same durable job and monitor its fresh backend attempt. */
+export async function resumeProcessingJob(
+  jobId,
+  videoId,
+  { signal, onStatus } = {},
+) {
+  const initial = API_MOCK_MODE
+    ? {
+        job_id: jobId,
+        video_id: videoId,
+        status: "succeeded",
+        stage: "complete",
+        attempt_count: 2,
+      }
+    : await postProcessingAction("resume", jobId, videoId, { signal });
+  const completed = await waitForProcessingJob(initial, videoId, { signal, onStatus });
+  if (completed.status === "cancelled") {
+    return { jobId, videoId, status: "cancelled" };
+  }
+  const data = await fetchPersistedInterventions(videoId, { signal });
+  cachedResult = { videoId, data };
+  return { jobId, videoId, status: completed.status };
+}
+
+/** Reconnect after refresh without creating or retrying a processing job. */
+export async function reconnectProcessingJob(
+  jobId,
+  videoId,
+  { signal, onStatus } = {},
+) {
+  const initial = await getJobStatus(jobId, videoId, { signal });
+  const completed = await waitForProcessingJob(initial, videoId, { signal, onStatus });
+  if (completed.status === "cancelled") {
+    return { jobId, videoId, status: "cancelled" };
+  }
+  const data = await fetchPersistedInterventions(videoId, { signal });
+  cachedResult = { videoId, data };
+  return { jobId, videoId, status: completed.status };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -624,7 +735,13 @@ export function toBackendExplanationMode(mode) {
   return backendMode;
 }
 
-const PREPARATION_STATUSES = new Set(["pending", "generating", "ready", "failed"]);
+const PREPARATION_STATUSES = new Set([
+  "pending",
+  "generating",
+  "ready",
+  "failed",
+  "cancelled",
+]);
 
 export class ExplanationPreparationError extends Error {
   constructor(kind, status = null, details = null) {
