@@ -25,7 +25,8 @@ import { useQuizSession } from "../hooks/useQuizSession.js";
 import * as defaultStore from "../lib/quizStore.js";
 import * as defaultApi from "../lib/quizApi.js";
 import * as defaultPrefs from "../lib/displayPrefs.js";
-import { AI_NOTICE } from "../lib/quizText.js";
+import { AI_NOTICE, choiceText } from "../lib/quizText.js";
+import { useVoiceActions } from "../voice/voiceActions";
 
 export default function QuizScreen(props) {
   // Keyed on the lecture so a different one starts clean (no stale attempt, aborted request).
@@ -71,6 +72,47 @@ function QuizScreenInner({
     setDisplay((d) => ({ ...d, highContrast }));
     session.announce(highContrast ? "High contrast on." : "High contrast off.");
   };
+
+  const voiceHandlers = {};
+  if (onBack && (phase === "setup" || phase === "results")) voiceHandlers.quiz_back = onBack;
+  if (phase === "setup" && !session.gen.busy) {
+    voiceHandlers.quiz_start = () => session.generate({ mode: "practice", count: 5 });
+  }
+  if (phase === "quiz" && work) {
+    const question = work.quiz.questions[work.currentIndex];
+    const total = work.quiz.questions.length;
+    const practice = work.mode === "practice";
+    if (work.view === "review") {
+      voiceHandlers.quiz_submit = () => session.submitAttempt();
+    } else {
+      voiceHandlers.quiz_answer = ({ index }) => {
+        const choice = question.choices[index - 1];
+        if (!choice) throw new Error("no such choice");
+        session.select(question.id, choice.id);
+        session.announce(`Selected ${choiceText(question, choice.id)}.`);
+      };
+      voiceHandlers.quiz_read = () => session.announce(
+        `Question ${work.currentIndex + 1} of ${total}. ${question.prompt} ${question.choices
+          .map((choice) => choiceText(question, choice.id)).join(". ")}.`,
+      );
+      if (practice) {
+        voiceHandlers.quiz_check = () => {
+          if (work.responses[question.id].choiceId === null) {
+            session.announce("Choose an answer first, then check it.");
+          } else {
+            session.check(question.id);
+          }
+        };
+        voiceHandlers.quiz_hint = () => session.revealHint(question.id);
+      }
+      if (work.currentIndex < total - 1) voiceHandlers.quiz_next = () => session.goTo(work.currentIndex + 1);
+      if (work.currentIndex > 0) voiceHandlers.quiz_previous = () => session.goTo(work.currentIndex - 1);
+      voiceHandlers.quiz_review = () => session.openReview();
+    }
+    voiceHandlers.change_text_size = ({ change }) => changeTextSize(change === "smaller" ? -1 : 1);
+    voiceHandlers.toggle_high_contrast = toggleContrast;
+  }
+  useVoiceActions(voiceHandlers, () => ({}));
 
   const openLecture = (evidence) =>
     onOpenLecture({ videoId, jobId, startSeconds: Math.max(0, Math.floor(evidence.start_seconds)) });

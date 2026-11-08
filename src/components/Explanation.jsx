@@ -23,6 +23,8 @@ import CategoryIcon from "./CategoryIcon";
 import AskLecture from "./AskLecture";
 import { formatTimestamp } from "../lib/askApi";
 import VoiceNotes from "./VoiceNotes";
+import { useVoiceAudio, useVoiceAudioPort } from "../voice/voiceAudio.js";
+import { useVoiceActions } from "../voice/voiceActions.js";
 import {
   resolveStructuredView,
   STRUCTURED_VIEW_DEMO_LABEL,
@@ -1174,6 +1176,37 @@ export default function Explanation({
     setPauseOwner("user");
   };
 
+  // Explanation remains the sole owner of both media players and pause
+  // ownership. Voice Control can only snapshot, pause and restore them through
+  // this narrow port, and it consults Voice Notes before opening a microphone.
+  const voiceAudio = useVoiceAudio();
+  useVoiceAudioPort({
+    getSnapshot: () => ({
+      lecture: PLAYER_STATE_NAMES[playerRef.current?.getPlayerState?.()] ?? "unknown",
+      explanation: audioRef.current
+        ? (audioRef.current.paused ? "paused" : "playing")
+        : "none",
+      pauseOwner: pauseOwnerRef.current,
+    }),
+    pause: pauseLectureAudio,
+    restore: ({ lecture, explanation: restoreExplanation, pauseOwner: owner }) => {
+      setPauseOwner(owner);
+      if (restoreExplanation) {
+        audioRef.current
+          ?.play()
+          .then(() => setIsPlaying(true))
+          .catch(() => {});
+      }
+      if (lecture) playerRef.current?.playVideo?.();
+    },
+    isNoteBusy: () => voiceControlRef.current?.isBusy?.() === true,
+    stopNote: () => {
+      if (voiceControlRef.current?.isRecording?.() !== true) return false;
+      voiceControlRef.current.toggle();
+      return true;
+    },
+  });
+
   // Every way out of this screen goes through here, so an unsaved voice note
   // gets a Save / Discard / Stay choice instead of being lost.
   const leaveScreen = (go) => {
@@ -1335,6 +1368,93 @@ export default function Explanation({
     checking: "Checking explanation readiness…",
   }[preparationUiKind] || "Loading this explanation…";
 
+  const voiceMoment = (index) => {
+    const point = sortedPoints[index - 1];
+    if (!point) announce(`There is no moment ${index}.`);
+    else selectPointManually(point.id);
+  };
+  const explanationAudio = () => {
+    if (!audioRef.current) throw new Error("explanation audio is not ready");
+    return audioRef.current;
+  };
+
+  // Voice actions call the same owners used by this screen's controls and
+  // shortcuts; they do not introduce a second playback or navigation state.
+  useVoiceActions(
+    {
+      play_lecture: () => handleResumeVideo(),
+      pause_lecture: () => pauseLectureAudio(),
+      seek_lecture: ({ direction, seconds }) => {
+        const player = playerRef.current;
+        if (!player?.seekTo) throw new Error("player not ready");
+        const now = player.getCurrentTime?.() ?? 0;
+        player.seekTo(
+          Math.max(0, now + (direction === "forward" ? seconds : -seconds)),
+          true,
+        );
+      },
+      play_explanation: () => {
+        explanationAudio().play().then(() => setIsPlaying(true)).catch(() => {});
+      },
+      pause_explanation: () => {
+        explanationAudio().pause();
+        setIsPlaying(false);
+      },
+      replay_explanation: () => {
+        const audio = explanationAudio();
+        audio.currentTime = 0;
+        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+      },
+      next_moment: () => (
+        nextPoint
+          ? selectPointManually(nextPoint.id)
+          : announce("This is the last moment.")
+      ),
+      previous_moment: () => (
+        prevPoint
+          ? selectPointManually(prevPoint.id)
+          : announce("This is the first moment.")
+      ),
+      go_to_moment: ({ index }) => voiceMoment(index),
+      change_listening_speed: ({ direction }) => stepRate(direction === "faster" ? 1 : -1),
+      toggle_voice_note: () => voiceControlRef.current?.toggle(),
+      toggle_bookmark: () => handleBookmark(),
+      export_pdf: () => handleExportPDF(),
+      export_audio: () => handleExportAudio(),
+      set_presentation_mode: ({ mode: next }) => switchPresentationMode(next),
+      change_text_size: ({ change }) => setTextScale((scale) => (
+        Math.round(
+          Math.min(1.6, Math.max(0.85, scale + (change === "larger" ? 0.15 : -0.15))) * 100,
+        ) / 100
+      )),
+      toggle_high_contrast: () => setHighContrast((enabled) => !enabled),
+      open_timeline: () => onOpenTimeline(effectiveActivePointId),
+      skip_explanation: () => handleSkipExplanation(),
+      retry_explanation: () => {
+        if (preparationUiKind === "failed") handleRetryPreparation();
+        else handleCheckPreparationAgain();
+      },
+      set_visual_tab: ({ tab }) => setVisualTab(tab),
+      toggle_focus: () => {
+        if (!focusRegion) throw new Error("no focus region");
+        handleToggleFocus();
+      },
+      ...(onStartPracticeRaw ? { start_practice: () => onStartPractice() } : {}),
+    },
+    () => ({
+      videoId,
+      currentMomentRef: effectiveActivePointId,
+      presentationMode,
+      lectureSeconds: playerRef.current?.getCurrentTime?.(),
+      items: sortedPoints.map((point, index) => ({
+        ref: String(point.id),
+        kind: "moment",
+        label: point.title || "Moment",
+        position: index + 1,
+      })),
+    }),
+  );
+
   const isLecturePlaying =
     playerState === "playing" || playerState === "buffering";
   const lectureControlLabel = !playerReady
@@ -1394,6 +1514,7 @@ export default function Explanation({
       Period: () => stepRate(1),
       Comma: () => stepRate(-1),
       KeyM: () => {
+        if (voiceAudio.isTurnActive()) return;
         if (!voiceControlRef.current) {
           announce("Voice notes aren't ready yet.");
           return;

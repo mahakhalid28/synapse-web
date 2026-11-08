@@ -134,6 +134,8 @@ export default function VoiceNotes({
     if (!controlRef) return undefined;
     controlRef.current = {
       toggle: () => recorder.toggle(),
+      isRecording: () => ["preparing", "recording"].includes(recorder.getStatus()),
+      isBusy: () => ["preparing", "recording", "saving", "draft", "save_failed"].includes(recorder.getStatus()),
       lectureStarted: () => {
         const current = recorder.getStatus();
         if (current === "preparing" || current === "recording") {

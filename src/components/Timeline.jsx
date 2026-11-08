@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
+import { useVoiceActions } from "../voice/voiceActions";
 import MomentMarker from "./MomentMarker";
 import { getInterventionPoints } from "../api";
 
@@ -29,6 +30,81 @@ export default function Timeline({
   const h1Ref = useRef(null);
   const focusedOnLoadRef = useRef(false);
   const [selectionMessage, setSelectionMessage] = useState("");
+
+  const visibleNow = () => {
+    const points = data?.points || [];
+    return activeCategory === "all" ? points : points.filter((point) => point.category === activeCategory);
+  };
+  const selectByVoice = (point) => {
+    setSelectedId(point.id);
+    setSelectionMessage(`Selected ${point.title}, ${point.category}, at ${point.timestamp}. Preview updated.`);
+  };
+  const stepByVoice = (step) => {
+    const list = visibleNow();
+    const current = list.findIndex((point) => point.id === selectedId);
+    const next = list[current < 0 ? (step > 0 ? 0 : list.length - 1) : current + step];
+    if (!next) setSelectionMessage(step > 0 ? "This is the last moment." : "This is the first moment.");
+    else selectByVoice(next);
+  };
+  const kindNames = {
+    graph: ["graph", "plot"],
+    equation: ["equation", "formula"],
+    chart: ["chart"],
+    diagram: ["diagram", "slide", "figure"],
+    code: ["code"],
+    table: ["table"],
+  };
+  useVoiceActions(
+    {
+      go_to_moment: ({ index }) => {
+        const point = visibleNow()[index - 1];
+        if (!point) throw new Error("no such moment");
+        selectByVoice(point);
+      },
+      next_moment: () => stepByVoice(1),
+      previous_moment: () => stepByVoice(-1),
+      filter_moments: ({ category }) => {
+        const categories = [...new Set((data?.points || []).map((point) => point.category))];
+        const found = category === "all"
+          ? "all"
+          : categories.find((candidate) => (kindNames[category] || [category]).includes(String(candidate).toLowerCase()));
+        if (!found) {
+          setSelectionMessage(`This lecture has no ${category} moments. It has: ${categories.join(", ")}.`);
+          return;
+        }
+        setActiveCategory(found);
+        const count = found === "all"
+          ? (data?.points || []).length
+          : data.points.filter((point) => point.category === found).length;
+        setSelectionMessage(`Showing ${found === "all" ? "all" : found} moments: ${count}.`);
+      },
+      open_moment: ({ index } = {}) => {
+        const point = index ? visibleNow()[index - 1] : data?.points.find((item) => item.id === selectedId);
+        if (!point) throw new Error("nothing selected");
+        onOpenPoint(point);
+      },
+      read_moments: () => {
+        const list = visibleNow();
+        setSelectionMessage(list.length
+          ? list.map((point, index) => `${index + 1}: ${point.title}, ${point.category}, at ${point.timestamp}`).join(". ")
+          : "There are no moments in this list.");
+      },
+      describe_moment: () => {
+        const point = data?.points.find((item) => item.id === selectedId);
+        setSelectionMessage(point
+          ? `Selected: ${point.title}, ${point.category}, at ${point.timestamp}.`
+          : "Nothing is selected yet.");
+      },
+    },
+    () => ({
+      items: visibleNow().map((point, index) => ({
+        ref: String(point.id),
+        kind: "moment",
+        label: point.title,
+        position: index + 1,
+      })),
+    }),
+  );
 
   // The h1 only exists once data has loaded; move focus to it exactly once so
   // arriving at the timeline is announced (see App.jsx's screen-change focus).

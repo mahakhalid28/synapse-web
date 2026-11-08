@@ -229,6 +229,26 @@ describe("control object used by the lecture screen", () => {
     expect(env.saved).toHaveLength(1);
   });
 
+  it("reports microphone ownership while preparing and recording", async () => {
+    const { controlRef } = await setup();
+    expect(controlRef.current.isRecording()).toBe(false);
+    expect(controlRef.current.isBusy()).toBe(false);
+
+    act(() => { void controlRef.current.toggle(); });
+    await advance(0);
+    expect(controlRef.current.isRecording()).toBe(true);
+    expect(controlRef.current.isBusy()).toBe(true);
+
+    await advance(SETTLE_MS);
+    expect(controlRef.current.isRecording()).toBe(true);
+    expect(controlRef.current.isBusy()).toBe(true);
+
+    await advance(2000);
+    await act(async () => { await controlRef.current.toggle(); });
+    expect(controlRef.current.isRecording()).toBe(false);
+    expect(controlRef.current.isBusy()).toBe(false);
+  });
+
   it("lectureStarted() while recording pauses again, explains, and reports 'blocked'", async () => {
     const { controlRef, props } = await setup();
     await startRecording();

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Welcome from "./components/Welcome";
 import Home from "./components/Home";
 import SubjectLectures from "./components/SubjectLectures";
 import Timeline from "./components/Timeline";
@@ -13,6 +14,10 @@ import { getLibrary } from "./storage";
 import { isValidVideoId } from "./lib/askApi";
 import { quizEnabled } from "./lib/quizFlag";
 import { safeStartSeconds } from "./lib/lectureSeek";
+import { needsWelcome } from "./lib/onboardingPrefs";
+import { voiceControlEnabled } from "./lib/voiceFlag";
+import VoiceControl from "./voice/VoiceControl";
+import { useVoiceActions } from "./voice/voiceActions";
 
 const PROCESSING_SESSION_KEY = "synapse_active_processing_job";
 
@@ -22,6 +27,22 @@ function readProcessingSession() {
     return value?.processingJobId && value?.videoId ? value : null;
   } catch {
     return null;
+  }
+}
+
+function readSavedTheme() {
+  try {
+    return globalThis.localStorage?.getItem("synapse_theme") || "paper";
+  } catch {
+    return "paper";
+  }
+}
+
+function saveTheme(theme) {
+  try {
+    globalThis.localStorage?.setItem("synapse_theme", theme);
+  } catch {
+    // Theme changes remain usable for this session when storage is unavailable.
   }
 }
 
@@ -39,7 +60,14 @@ function shouldAcceptProcessingStatus(current, next) {
 }
 
 function App() {
-  const [screen,  setScreen]  = useState("home");
+  const [startup] = useState(() => {
+    const restoredProcessing = readProcessingSession();
+    return {
+      restoredProcessing,
+      initialScreen: restoredProcessing ? "home" : needsWelcome() ? "welcome" : "home",
+    };
+  });
+  const [screen,  setScreen]  = useState(startup.initialScreen);
   const [jobInfo, setJobInfo] = useState(null);
   const [exploreSubject, setExploreSubject] = useState(null);
   // The lecture a quiz belongs to, fixed when "Practice this lecture" is pressed. The quiz screen and
@@ -52,9 +80,7 @@ function App() {
   const [hasLeftHome, setHasLeftHome] = useState(false);
 
   // ── Theme ──────────────────────────────────────────────────────────────────
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("synapse_theme") || "paper"
-  );
+  const [theme, setTheme] = useState(readSavedTheme);
 
   // A screen change here is a view swap, not a page load, so a screen reader
   // is told nothing unless focus moves. Land on the new screen's <h1> (made
@@ -81,6 +107,7 @@ function App() {
   // NVDA+T). The lecture screen sets its own, naming the current moment.
   useEffect(() => {
     const titles = {
+      welcome: "Welcome",
       home: "Start a study session",
       subject: exploreSubject ? `${exploreSubject} lectures` : "Lectures",
       timeline: "Lecture timeline",
@@ -94,7 +121,7 @@ function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("synapse_theme", theme);
+    saveTheme(theme);
   }, [theme]);
 
   // ── HOME -> EXPLANATION (processing now happens inline, no blocking screen) ─
@@ -102,7 +129,7 @@ function App() {
   const processingControllerRef = useRef(null);
   const processingActionControllerRef = useRef(null);
   const processingTokenRef = useRef(null);
-  const restoredProcessingRef = useRef(readProcessingSession());
+  const restoredProcessingRef = useRef(startup.restoredProcessing);
   const [processingAction, setProcessingAction] = useState(null);
   const [processingActionError, setProcessingActionError] = useState(null);
 
@@ -446,10 +473,61 @@ function App() {
     setScreen("subject");
   };
 
+  const handleWelcomeDone = () => {
+    setHasLeftHome(true);
+    setScreen("home");
+  };
+
+  // Global voice commands delegate to the same navigation, theme and lecture
+  // handlers as the visible controls. Welcome deliberately registers none.
+  useVoiceActions(
+    screen === "welcome"
+      ? {}
+      : {
+          navigate_home: () => handleNavigate("home"),
+          navigate_library: () => handleNavigate("library"),
+          navigate_bookmarks: () => handleNavigate("bookmarks"),
+          navigate_notes: () => handleNavigate("notes"),
+          set_theme: ({ theme: next }) => setTheme(next),
+          explore_subject: ({ subject }) => handleExploreSubject(subject),
+          ...(screen === "home"
+            ? {}
+            : {
+                continue_lecture: () => {
+                  const last = getLibrary().find((entry) => entry.videoId);
+                  if (!last) {
+                    const error = new Error("nothing to continue");
+                    error.spoken = "You haven't opened any lecture yet.";
+                    throw error;
+                  }
+                  handleProcess({
+                    url: `https://youtube.com/watch?v=${last.videoId}`,
+                    videoId: last.videoId,
+                    mode: last.mode || "standard",
+                    resume: true,
+                    metadata: {
+                      title: last.videoTitle || last.title,
+                      videoTitle: last.videoTitle || last.title,
+                      videoAuthor: last.videoAuthor || "",
+                      videoDuration: last.videoDuration || "",
+                      videoThumbnail: last.videoThumbnail || "",
+                      videoId: last.videoId,
+                      lastMoment: last.title,
+                      timestamp: last.timestamp,
+                    },
+                  });
+                },
+              }),
+        },
+    () => ({ screen, videoId: jobInfo?.videoId }),
+  );
+
   // ── Active screen ──────────────────────────────────────────────────────────
   let activeScreen;
 
-  if (screen === "timeline" && jobInfo) {
+  if (screen === "welcome") {
+    activeScreen = <Welcome onDone={handleWelcomeDone} />;
+  } else if (screen === "timeline" && jobInfo) {
     activeScreen = (
       <Timeline
         jobId={jobInfo.jobId}
@@ -554,7 +632,15 @@ function App() {
       >
         Skip to main content
       </a>
-      <Navbar theme={theme} onThemeChange={setTheme} />
+      <Navbar
+        theme={theme}
+        onThemeChange={setTheme}
+        leading={
+          voiceControlEnabled() && screen !== "welcome"
+            ? <VoiceControl />
+            : null
+        }
+      />
       <div className="flex-1 overflow-hidden">
         {activeScreen}
       </div>

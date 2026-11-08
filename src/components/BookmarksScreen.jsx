@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 import CategoryIcon from "./CategoryIcon";
 import { getBookmarks, removeBookmark } from "../storage";
+import { useVoiceActions } from "../voice/voiceActions";
 
 export default function BookmarksScreen({
   onNavigate     = () => {},
@@ -23,6 +24,26 @@ export default function BookmarksScreen({
     if (target === "heading") h1Ref.current?.focus();
     else document.getElementById(`bm-remove-${target}`)?.focus();
   }, [bookmarks]);
+
+  const bookmarkAt = (index) => {
+    const bookmark = bookmarks[index - 1];
+    if (!bookmark) throw new Error("no such bookmark");
+    return bookmark;
+  };
+  useVoiceActions(
+    {
+      open_item: ({ index }) => onOpenBookmark(bookmarkAt(index)),
+      remove_item: ({ index }) => handleRemove(bookmarkAt(index).id),
+    },
+    () => ({
+      items: bookmarks.map((bookmark, index) => ({
+        ref: String(bookmark.id),
+        kind: "bookmark",
+        label: bookmark.title || "Bookmark",
+        position: index + 1,
+      })),
+    }),
+  );
 
   const handleRemove = (id) => {
     const removed = bookmarks.find((bm) => bm.id === id);

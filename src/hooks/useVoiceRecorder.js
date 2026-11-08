@@ -103,7 +103,7 @@ function wait(ms) {
 
 // A short beep. Resolves when it has finished (or immediately if audio output
 // is unavailable: the tone is a cue, never a reason to fail).
-async function playTone() {
+async function playTone(frequency = 880) {
   const AC = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
   if (!AC) return;
   let ctx;
@@ -112,7 +112,7 @@ async function playTone() {
     if (ctx.state === "suspended") await ctx.resume();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.frequency.value = 880;
+    osc.frequency.value = frequency;
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + TONE_MS / 1000);

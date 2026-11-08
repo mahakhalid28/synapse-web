@@ -4,6 +4,7 @@ import LectureResultsList from "./LectureResultsList";
 import useLectureSearch from "../hooks/useLectureSearch";
 import useFocusShortcut from "../hooks/useFocusShortcut";
 import { getLibrary } from "../storage";
+import { useVoiceActions } from "../voice/voiceActions";
 
 const SUBJECTS = ["Mathematics", "Physics", "Computer Science", "Chemistry", "Biology"];
 
@@ -65,6 +66,13 @@ export default function Home({
       timestamp: last.timestamp,
     };
   }, [continueLectureProp]);
+
+  useVoiceActions({
+    continue_lecture: () => {
+      if (!continueLecture) throw new Error("nothing to continue");
+      resumeContinueLecture();
+    },
+  });
 
   function resumeContinueLecture() {
     setStatusMessage(`Resuming ${continueLecture.title}.`);

@@ -10,6 +10,7 @@ import { useAnnouncer } from "../hooks/useAnnouncer.js";
 import { formatClock } from "../hooks/useVoiceRecorder.js";
 import { listAllNotes as defaultListAll } from "../lib/notesStore.js";
 import { groupByLecture } from "../lib/voiceNoteText.js";
+import { useVoiceActions } from "../voice/voiceActions";
 
 export default function NotesScreen({
   onNavigate = () => {},
@@ -48,6 +49,28 @@ export default function NotesScreen({
 
   const player = useNotePlayer({ announce, ...playerOptions });
   const groups = useMemo(() => groupByLecture(notes), [notes]);
+
+  const listed = useMemo(
+    () => groups.flatMap((group) => group.notes.map((note) => ({ ...note, lectureLabel: group.title }))),
+    [groups],
+  );
+  useVoiceActions(
+    {
+      open_item: ({ index }) => {
+        const note = listed[index - 1];
+        if (!note) throw new Error("no such note");
+        onOpenNote(note);
+      },
+    },
+    () => ({
+      items: listed.map((note, index) => ({
+        ref: String(note.id),
+        kind: "note",
+        label: note.lectureLabel || "Voice note",
+        position: index + 1,
+      })),
+    }),
+  );
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
