@@ -227,6 +227,24 @@ describe("P3 explanation preparation playback", () => {
     expect(h.getPrepared).not.toHaveBeenCalled();
   });
 
+  it("keeps polling throughout the backend VLM recovery window", async () => {
+    h.getStatus.mockResolvedValue({
+      items: [
+        { ...status("pending"), error_code: "vlm_remote_unavailable" },
+        status("pending", "p2"),
+      ],
+    });
+    renderExplanation();
+
+    for (let index = 0; index < 31; index += 1) {
+      await settle(5_000);
+    }
+
+    expect(h.getStatus.mock.calls.length).toBeGreaterThan(30);
+    expect(screen.getByText(/visual model is temporarily unavailable/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  });
+
   it("cancels the obsolete poll when the video or mode changes", async () => {
     h.getStatus.mockImplementation((_video, _mode, { signal }) =>
       new Promise((_resolve, reject) => {

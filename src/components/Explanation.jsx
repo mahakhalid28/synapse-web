@@ -30,6 +30,10 @@ import {
   STRUCTURED_VIEW_DEMO_LABEL,
 } from "../lib/structuredViewDemo";
 
+// Keep frontend polling aligned with the backend's default 15-minute durable
+// VLM recovery window. With the delays below, poll 183 occurs at ~897.5s.
+const PREPARATION_MAX_POLLS = 183;
+
 // "0:15", "1:22", "1:04:10" -> seconds. Same shape as the timestamps
 // getInterventionPoints() already returns (see Timeline.jsx's own copy of
 // this logic), just kept local here rather than shared across files.
@@ -486,7 +490,6 @@ export default function Explanation({
     let pollCount = 0;
     const pointIds = new Set(preparationPointKey.split("|"));
     const delays = [500, 1000, 2000, 4000, 5000];
-    const maxPolls = 30;
 
     const poll = async () => {
       controller = new AbortController();
@@ -517,7 +520,7 @@ export default function Explanation({
         setPreparationPhase("unavailable");
       }
 
-      if (pollCount >= maxPolls) {
+      if (pollCount >= PREPARATION_MAX_POLLS) {
         setPreparationPhase("stopped");
         return;
       }
@@ -1346,7 +1349,9 @@ export default function Explanation({
     (activePreparation?.status === "pending" || activePreparation?.status === "generating")
   ) {
     preparationUiKind = "waiting";
-    preparationUiMessage = "This explanation is being prepared. You can keep waiting or continue the lecture.";
+    preparationUiMessage = activePreparation?.error_code === "vlm_remote_unavailable"
+      ? "The visual model is temporarily unavailable. Synapse will keep retrying automatically; you can wait or continue the lecture."
+      : "This explanation is being prepared. You can keep waiting or continue the lecture.";
   } else if (
     !API_MOCK_MODE &&
     (effectivePreparationPhase === "unavailable" || effectivePreparationPhase === "stopped")
