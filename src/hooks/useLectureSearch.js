@@ -1,6 +1,14 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { extractYouTubeId, searchVideos } from "../lib/lectureSearch";
+import { RESULTS_PER_PAGE, pageCount, pageSummary, rankResults } from "../lib/searchRanking";
 import { useVoiceActions } from "../voice/voiceActions";
+
+// An error whose `spoken` text is read to the learner by the voice layer.
+function spokenError(message) {
+  const error = new Error(message);
+  error.spoken = message;
+  return error;
+}
 
 // Single source of truth for the "paste a link or search" flow used by the
 // Home screen and the subject-scoped lecture views — keeps status copy,
@@ -12,6 +20,7 @@ export default function useLectureSearch({
 } = {}) {
   const [url, setUrl] = useState(initialQuery);
   const [results, setResults] = useState([]);
+  const [page, setPage] = useState(1);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [validationError, setValidationError] = useState(null);
@@ -24,13 +33,34 @@ export default function useLectureSearch({
   const abortControllerRef = useRef(null);
   const lastQueryRef = useRef(initialQuery.trim());
 
-  // Focus moves to the results heading once results actually appear,
-  // so keyboard/screen-reader users land somewhere meaningful.
+  // Focus moves to the results heading once results actually appear (and when
+  // the page changes), so keyboard/screen-reader users land somewhere meaningful.
   useEffect(() => {
     if (results.length > 0) {
       resultsHeadingRef.current?.focus();
     }
-  }, [results]);
+  }, [results, page]);
+
+  // Only a small page is rendered at a time (results stay the full ranked list).
+  const totalPages = pageCount(results.length);
+  const currentPage = Math.min(page, totalPages);
+  const pageResults = useMemo(
+    () => results.slice((currentPage - 1) * RESULTS_PER_PAGE, currentPage * RESULTS_PER_PAGE),
+    [results, currentPage],
+  );
+  const pageOffset = (currentPage - 1) * RESULTS_PER_PAGE;
+
+  const goToPage = useCallback(
+    (next) => {
+      const target = Math.min(Math.max(1, next), totalPages);
+      if (target === currentPage) return;
+      setPage(target);
+      setStatusMessage(pageSummary(target, results.length));
+    },
+    [totalPages, currentPage, results.length],
+  );
+  const nextPage = useCallback(() => goToPage(currentPage + 1), [goToPage, currentPage]);
+  const prevPage = useCallback(() => goToPage(currentPage - 1), [goToPage, currentPage]);
 
   // Clean up any in-flight search on unmount
   useEffect(() => {
@@ -55,6 +85,7 @@ export default function useLectureSearch({
     abortControllerRef.current = controller;
 
     setResults([]);
+    setPage(1);
     setSearchError(null);
     setValidationError(null);
     setSearching(true);
@@ -66,12 +97,17 @@ export default function useLectureSearch({
         // Discard stale response
         return;
       }
-      setResults(found);
+      // Short lectures and preferred channels first; nothing is removed.
+      const ranked = rankResults(found);
+      setResults(ranked);
       setSearchError(null);
       setStatusMessage(
-        found.length === 0
+        ranked.length === 0
           ? "No lectures found. Try another search term or paste a YouTube link."
-          : `${found.length} lecture${found.length === 1 ? "" : "s"} found.`,
+          : `${ranked.length} lecture${ranked.length === 1 ? "" : "s"} found.` +
+              (ranked.length > RESULTS_PER_PAGE
+                ? ` ${pageSummary(1, ranked.length)} Shorter lectures are listed first.`
+                : ""),
       );
     } catch (err) {
       if (err.name === "AbortError" || currentSeq !== searchSeqRef.current) {
@@ -201,10 +237,21 @@ export default function useLectureSearch({
         return runSearch(query);
       },
       select_result: ({ index }) => {
-        const video = results[index - 1];
+        // "The second one" means the second on the visible page.
+        const video = pageResults[index - 1];
         if (!video) throw new Error("no such result");
         setUrl(`https://youtube.com/watch?v=${video.videoId}`);
         setResults([]);
+      },
+      next_results_page: () => {
+        if (results.length === 0) throw spokenError("There are no search results yet. Search for a lecture first.");
+        if (currentPage >= totalPages) throw spokenError("That is the last page of results.");
+        nextPage();
+      },
+      previous_results_page: () => {
+        if (results.length === 0) throw spokenError("There are no search results yet. Search for a lecture first.");
+        if (currentPage <= 1) throw spokenError("That is the first page of results.");
+        prevPage();
       },
       start_lecture: () => handleSubmit(),
       paste_url: async () => {
@@ -229,7 +276,7 @@ export default function useLectureSearch({
       },
     },
     () => ({
-      items: results.map((video, index) => ({
+      items: pageResults.map((video, index) => ({
         ref: video.videoId,
         kind: "result",
         label: video.title,
@@ -243,6 +290,15 @@ export default function useLectureSearch({
     setUrl,
     results,
     setResults,
+    pageResults,
+    pagination: {
+      page: currentPage,
+      totalPages,
+      total: results.length,
+      offset: pageOffset,
+      onPrev: prevPage,
+      onNext: nextPage,
+    },
     searching,
     searchError,
     validationError,

@@ -15,7 +15,8 @@ export default function SubjectLectures({
 }) {
   const {
     url,
-    results,
+    pageResults,
+    pagination,
     searching,
     searchError,
     validationError,
@@ -121,12 +122,12 @@ export default function SubjectLectures({
           )}
 
           <LectureResultsList
-            results={results}
+            results={pageResults}
+            pagination={pagination}
             headingRef={resultsHeadingRef}
             heading="Search results"
             headingLevel="h2"
             onSelect={selectResult}
-            getAriaLabel={(r) => `Start learning: ${r.title}, ${r.channel || r.channel_name}, ${r.duration}`}
             showAction
             disabled={submitting || searching}
           />

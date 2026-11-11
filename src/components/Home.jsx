@@ -8,6 +8,55 @@ import { useVoiceActions } from "../voice/voiceActions";
 
 const SUBJECTS = ["Mathematics", "Physics", "Computer Science", "Chemistry", "Biology"];
 
+// Decorative tint per subject (full class names so Tailwind generates them).
+const SUBJECT_TINTS = [
+  "bg-tint-1 text-tint-1-fg",
+  "bg-tint-2 text-tint-2-fg",
+  "bg-tint-3 text-tint-3-fg",
+  "bg-tint-4 text-tint-4-fg",
+  "bg-tint-5 text-tint-5-fg",
+];
+
+function SubjectIcon({ subject }) {
+  const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", focusable: "false" };
+  switch (subject) {
+    case "Physics":
+      return (
+        <svg {...p}>
+          <circle cx="12" cy="12" r="2" />
+          <ellipse cx="12" cy="12" rx="10" ry="4" />
+          <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" />
+          <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" />
+        </svg>
+      );
+    case "Computer Science":
+      return (
+        <svg {...p} strokeWidth="2">
+          <path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" />
+        </svg>
+      );
+    case "Chemistry":
+      return (
+        <svg {...p}>
+          <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3" />
+          <path d="M7.5 15h9" />
+        </svg>
+      );
+    case "Biology":
+      return (
+        <svg {...p}>
+          <path d="M7 3c0 6 10 6 10 12M17 3c0 6-10 6-10 12M7 21c0-6 10-6 10-12M8 8h8M8 16h8" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...p}>
+          <path d="M4 19l4-14 4 9 4-9 4 14" />
+        </svg>
+      );
+  }
+}
+
 export default function Home({
   onProcess = () => {},
   onNavigate = () => {},
@@ -19,8 +68,9 @@ export default function Home({
   const {
     url,
     setUrl,
-    results,
     setResults,
+    pageResults,
+    pagination,
     searching,
     searchError,
     validationError,
@@ -107,28 +157,33 @@ export default function Home({
             {statusMessage}
           </div>
 
-          <h1
-            id="page-title"
-            ref={h1Ref}
-            tabIndex={-1}
-            className="text-[32px] font-semibold text-text-primary leading-tight mb-4 outline-none rounded-radius-sm focus-ring"
-          >
-            Start a study session
-          </h1>
+          {/* Decorative header band (gradient). Text on it is white, >= 9:1 along
+              the whole gradient; in forced-colors mode it becomes a plain
+              bordered box. The heading and paragraph are unchanged. */}
+          <div className="mb-7 rounded-radius-lg bg-hero border border-border-subtle px-8 py-8">
+            <h1
+              id="page-title"
+              ref={h1Ref}
+              tabIndex={-1}
+              className="text-[40px] font-bold tracking-tight text-hero-fg leading-tight mb-3 outline-none rounded-radius-sm focus-ring"
+            >
+              Start a study session
+            </h1>
 
-          {/* Plain text, read in order — tells a first-time visitor what
-              this app does before they have to find out by trial. */}
-          <p className="text-[15px] text-text-secondary leading-relaxed mb-6 max-w-[640px]">
-            Synapse plays a YouTube lecture and pauses at diagrams, equations
-            and charts to explain them. Choose a lecture below to begin, or press
-            Alt plus S at any time to jump to the search field.
-          </p>
+            {/* Plain text, read in order — tells a first-time visitor what
+                this app does before they have to find out by trial. */}
+            <p className="text-[17px] text-hero-sub leading-relaxed max-w-[660px]">
+              Synapse plays a YouTube lecture and pauses at diagrams, equations
+              and charts to explain them. Choose a lecture below to begin, or press
+              Alt plus S at any time to jump to the search field.
+            </p>
+          </div>
 
           {continueLecture && (
             <button
               type="button"
               onClick={resumeContinueLecture}
-              className="mb-8 block w-full text-left px-3.5 py-2.5 bg-surface-muted border border-border-strong/70 rounded-radius-md hover:border-accent outline-none transition-colors focus-ring"
+              className="ds-row mb-8 hover:border-accent"
             >
               {/* The visible text is the accessible name (so it always
                   contains what is shown); sr-only separators keep it readable. */}
@@ -146,7 +201,7 @@ export default function Home({
           )}
 
           <section aria-labelledby="new-lecture-heading" className="mb-12">
-            <h2 id="new-lecture-heading" className="text-[19px] font-semibold text-text-primary mb-4">
+            <h2 id="new-lecture-heading" className="text-[22px] font-bold tracking-tight text-text-primary mb-4">
               Start a new lecture
             </h2>
 
@@ -155,6 +210,10 @@ export default function Home({
                 Lecture link or search
               </label>
               <div className="ds-field">
+                <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-text-muted">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M20 20l-4-4" />
+                </svg>
                 <input
                   id="lecture-input"
                   ref={inputRef}
@@ -163,7 +222,7 @@ export default function Home({
                   onChange={handleUrlChange}
                   onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                   placeholder="Paste a YouTube link or search for a lecture"
-                  className="flex-1 bg-transparent font-mono text-[13px] text-text-primary placeholder:text-text-muted outline-none"
+                  className="flex-1 min-w-0 bg-transparent text-[17px] text-text-primary placeholder:text-text-muted outline-none"
                   spellCheck={false}
                 />
                 {isValidUrl && (
@@ -195,12 +254,12 @@ export default function Home({
             )}
 
             <LectureResultsList
-              results={results}
+              results={pageResults}
+              pagination={pagination}
               headingRef={resultsHeadingRef}
               onSelect={handleSelectResult}
               showAction
               disabled={submitting || searching}
-              getAriaLabel={(r, i) => `Start learning: ${r.title}, ${r.channel || r.channel_name}, ${r.duration}`}
             />
 
             <button
@@ -214,17 +273,21 @@ export default function Home({
           </section>
 
           <section aria-labelledby="explore-heading" className="mb-12">
-            <h2 id="explore-heading" className="text-[19px] font-semibold text-text-primary mb-4">
+            <h2 id="explore-heading" className="text-[22px] font-bold tracking-tight text-text-primary mb-4">
               Explore a subject
             </h2>
-            <div className="flex flex-wrap gap-2">
-              {SUBJECTS.map((subject) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+              {SUBJECTS.map((subject, i) => (
                 <button
                   key={subject}
                   type="button"
                   onClick={() => onExploreSubject(subject)}
-                  className="ds-btn-secondary"
+                  className="ds-row flex flex-col items-center gap-2.5 px-2.5 py-4 text-center text-[15px] font-semibold text-text-primary"
                 >
+                  {/* Decorative icon: colour is decoration only, the text label names the subject. */}
+                  <span aria-hidden="true" className={`grid h-[46px] w-[46px] place-items-center rounded-radius-md ${SUBJECT_TINTS[i % SUBJECT_TINTS.length]}`}>
+                    <SubjectIcon subject={subject} />
+                  </span>
                   {subject}
                 </button>
               ))}

@@ -1647,7 +1647,7 @@ export default function Explanation({
               this as a moment within the lecture, at its timestamp. */}
             <h1
               className="font-bold text-text-primary leading-tight tracking-tight"
-              style={{ fontSize: `${32 * textScale}px` }}
+              style={{ fontSize: `${38 * textScale}px` }}
             >
               {activePoint.title}
             </h1>
@@ -1661,7 +1661,7 @@ export default function Explanation({
               structure, just displays which moment is active. Shared by
               both modes (Accessibility Mode wants the same marker/chip
               treatment here too, per the design spec). */}
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-accent-soft border border-border-subtle rounded-radius-sm">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-accent-soft border border-border-subtle rounded-full">
                 <MomentMarker className="text-accent" />
                 <span className="text-[14px] text-text-secondary">
                   Lecture moment ·{" "}
@@ -1692,7 +1692,7 @@ export default function Explanation({
                         setTextScale((s) => Math.max(0.85, s - 0.15))
                       }
                       aria-label="Decrease text size"
-                      className="w-7 h-7 flex items-center justify-center rounded-radius-sm border border-border-strong text-text-secondary text-[14px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring"
+                      className="w-11 h-11 flex items-center justify-center rounded-radius-sm border-[1.5px] border-border-strong text-text-secondary text-[16px] font-semibold hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring"
                     >
                       −
                     </button>
@@ -1702,7 +1702,7 @@ export default function Explanation({
                         setTextScale((s) => Math.min(1.6, s + 0.15))
                       }
                       aria-label="Increase text size"
-                      className="w-7 h-7 flex items-center justify-center rounded-radius-sm border border-border-strong text-text-secondary text-[14px] font-medium hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring"
+                      className="w-11 h-11 flex items-center justify-center rounded-radius-sm border-[1.5px] border-border-strong text-text-secondary text-[16px] font-semibold hover:bg-surface-muted hover:text-text-primary transition-colors focus-ring"
                     >
                       +
                     </button>
@@ -1716,7 +1716,7 @@ export default function Explanation({
                     onClick={() => setHighContrast((v) => !v)}
                     aria-pressed={highContrast}
                     className={
-                      "h-7 px-2.5 flex items-center justify-center rounded-radius-sm border text-[14px] font-medium transition-colors focus-ring " +
+                      "min-h-[44px] px-4 flex items-center justify-center rounded-radius-sm border-[1.5px] text-[15px] font-medium transition-colors focus-ring " +
                       (highContrast
                         ? "bg-accent-soft text-text-primary font-semibold border-accent"
                         : "border-border-strong text-text-secondary hover:bg-surface-muted hover:text-text-primary")
@@ -1816,14 +1816,14 @@ export default function Explanation({
             <div
               role="group"
               aria-label="Presentation mode"
-              className="mb-6 inline-flex rounded-radius-md border border-border-strong overflow-hidden"
+              className="mb-6 inline-flex gap-1 p-1 rounded-radius-md border-[1.5px] border-border-strong bg-surface-muted"
             >
               <button
                 type="button"
                 aria-pressed={presentationMode === "accessibility"}
                 onClick={() => switchPresentationMode("accessibility")}
                 className={
-                  "px-3.5 py-2 text-[14px] transition-colors focus-ring " +
+                  "min-h-[44px] px-5 py-2 text-[15px] rounded-radius-sm transition-colors focus-ring " +
                   (presentationMode === "accessibility"
                     ? "bg-accent text-on-accent font-semibold"
                     : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
@@ -1836,7 +1836,7 @@ export default function Explanation({
                 aria-pressed={presentationMode === "study"}
                 onClick={() => switchPresentationMode("study")}
                 className={
-                  "px-3.5 py-2 text-[14px] border-l border-border-strong transition-colors focus-ring " +
+                  "min-h-[44px] px-5 py-2 text-[15px] rounded-radius-sm transition-colors focus-ring " +
                   (presentationMode === "study"
                     ? "bg-accent text-on-accent font-semibold"
                     : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
@@ -1852,14 +1852,17 @@ export default function Explanation({
               only visually hides the video area (sr-only, not display:none —
               display:none suspends the iframe's playback; this doesn't) and
               swaps in a plain status line covering the same state. */}
-            <div className="my-9">
+            {/* In Accessibility mode this block (status line + lecture control)
+              is drawn as one "now explaining" card; the elements inside are
+              unchanged, only their styling differs. */}
+            <div className={presentationMode === "accessibility" ? "ds-card my-7 px-6 py-6" : "my-9"}>
               <div
                 id="lecture-video-region"
                 role="region"
                 aria-label="Lecture video"
                 className={
                   presentationMode === "study"
-                    ? "aspect-video rounded-radius-md overflow-hidden relative bg-surface-muted border border-border-subtle"
+                    ? "aspect-video rounded-radius-lg overflow-hidden relative bg-surface-muted border border-border-subtle shadow-card"
                     : "sr-only"
                 }
                 /* `inert` in Accessibility Mode removes the visually-hidden
@@ -1900,7 +1903,19 @@ export default function Explanation({
                 reading the page. It is deliberately NOT a live region: every
                 spoken state change goes through the single sr-only region
                 below, so one event is announced exactly once. */}
-              <div className="mt-3 text-[14px] text-text-secondary">
+              <div
+                className={
+                  presentationMode === "accessibility"
+                    ? "flex items-center gap-3 text-[19px] font-bold text-text-primary"
+                    : "mt-3 text-[14px] text-text-secondary"
+                }
+              >
+                {presentationMode === "accessibility" && (
+                  <span
+                    aria-hidden="true"
+                    className="h-2.5 w-2.5 shrink-0 rounded-full bg-teal shadow-[0_0_0_5px_rgb(var(--teal)/0.2)]"
+                  />
+                )}
                 {statusText}
               </div>
 
@@ -1952,7 +1967,7 @@ export default function Explanation({
                 <div
                   role="tablist"
                   aria-label="Visual content view"
-                  className="mb-6 inline-flex rounded-radius-md border border-border-strong overflow-hidden"
+                  className="mb-6 inline-flex gap-1 p-1 rounded-radius-md border-[1.5px] border-border-strong bg-surface-muted"
                 >
                   <button
                     type="button"
@@ -1965,7 +1980,7 @@ export default function Explanation({
                     onClick={() => setVisualTab("visual")}
                     onKeyDown={handleVisualTabKeyDown}
                     className={
-                      "px-3.5 py-2 text-[14px] transition-colors focus-ring " +
+                      "min-h-[44px] px-5 py-2 text-[15px] rounded-radius-sm transition-colors focus-ring " +
                       (effectiveVisualTab === "visual"
                         ? "bg-accent text-on-accent font-semibold"
                         : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
@@ -1987,7 +2002,7 @@ export default function Explanation({
                       onClick={() => setVisualTab("structured")}
                       onKeyDown={handleVisualTabKeyDown}
                       className={
-                        "px-3.5 py-2 text-[14px] border-l border-border-strong transition-colors focus-ring " +
+                        "min-h-[44px] px-5 py-2 text-[15px] rounded-radius-sm transition-colors focus-ring " +
                         (effectiveVisualTab === "structured"
                           ? "bg-accent text-on-accent font-semibold"
                           : "bg-surface text-text-secondary font-medium hover:bg-surface-muted")
@@ -2013,7 +2028,7 @@ export default function Explanation({
                         onClick={handleToggleFocus}
                         aria-pressed={focusActive}
                         className={
-                          "h-7 px-2.5 inline-flex items-center justify-center rounded-radius-sm border text-[14px] font-medium transition-colors focus-ring " +
+                          "min-h-[44px] px-4 inline-flex items-center justify-center rounded-radius-sm border-[1.5px] text-[15px] font-medium transition-colors focus-ring " +
                           (focusActive
                             ? "bg-accent-soft border-accent text-text-primary font-semibold"
                             : "border-border-strong text-text-secondary hover:bg-surface-muted hover:text-text-primary")
@@ -2086,7 +2101,7 @@ export default function Explanation({
                 "rounded-radius-lg p-7 md:p-10 " +
                 (highContrast
                   ? "bg-white border-2 border-black"
-                  : "bg-surface border border-border-subtle")
+                  : "bg-surface border border-border-subtle shadow-card")
               }
             >
               {/* A bare container, not a named region: a region named "Explanation" followed by an "Explanation" heading was spoken twice. */}
@@ -2532,7 +2547,7 @@ export default function Explanation({
         {presentationMode === "study" && (
           <aside
             aria-label="Lecture details"
-            className="w-[300px] bg-background border-l border-border-subtle p-5 overflow-y-auto shrink-0"
+            className="w-[320px] bg-surface-muted/50 border-l border-border-subtle p-5 overflow-y-auto shrink-0"
           >
             {/* Only real entry point into Timeline — carries the current
             point along via onOpenTimeline so Timeline opens with it already
@@ -2552,7 +2567,7 @@ export default function Explanation({
             {/* One continuous card — Lecture Details and Intervention Points
                 are sections within it, separated by a divider rather than
                 living in two separate boxes. */}
-            <div className="bg-surface border border-border-subtle rounded-radius-md">
+            <div className="ds-card">
               {/* Lecture Details section */}
               <div className="p-4">
                 <h2 className="text-[15px] font-semibold text-text-secondary mb-2">

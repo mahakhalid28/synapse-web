@@ -5,20 +5,20 @@ const THEMES = [
   {
     key:    "paper",
     label:  "Paper",
-    desc:   "Warm parchment",
-    swatch: ["#F7F4EC", "#2A2520", "#4A5B8C"],
+    desc:   "Light and colourful",
+    swatch: ["#E2E6F8", "#14172B", "#362CAC"],
   },
   {
     key:    "night",
     label:  "Night",
     desc:   "Dark mode",
-    swatch: ["#1C1A17", "#E8E0D4", "#6B7BAA"],
+    swatch: ["#0E1120", "#ECEEF8", "#B8B4FF"],
   },
   {
     key:    "sepia",
     label:  "Sepia",
     desc:   "Amber reading",
-    swatch: ["#F2E8D4", "#3C2C18", "#8B5E3C"],
+    swatch: ["#EEE2C8", "#301E0E", "#683210"],
   },
 ];
 

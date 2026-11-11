@@ -8,25 +8,50 @@ video playback.
 Dev: `npm run dev` (Vite only) or `npm run electron:dev` (Vite + Electron
 together). Lint: `npx eslint <file>`.
 
-## Design system (STEM-workspace tokens)
+## Design system ("calm, colour-blocked" redesign)
 
-Defined in `src/index.css` (`:root`) + mapped in `tailwind.config.js`.
-**Additive** — the old `paper`/`ink`/`accent` (no suffix) editorial tokens
-from the original app still exist and are still used by unmigrated screens;
-never delete or repurpose them.
+Defined in `src/index.css` (`:root` = Light, `[data-theme="night"]`,
+`[data-theme="sepia"]`) + mapped in `tailwind.config.js`. Three themes, all
+fully themed. **Additive** — the old `paper`/`ink` (no-suffix) editorial
+tokens from the original app still exist; never delete or repurpose them.
 
-New tokens (all support `/opacity` since they use the
-`rgb(var(--x) / <alpha-value>)` pattern):
-`background`, `surface`, `surface-muted`, `border-default`, `text-primary`,
-`text-secondary`, `text-muted`, `accent-primary` (+ `--accent-primary-hover`
-CSS var, not a Tailwind key), `accent-subtle`, `radius-sm/md/lg` (as
-`rounded-radius-sm` etc. — deliberately not `sm/md/lg`, which are Tailwind's
-own built-in scale still used by unmigrated screens).
+**Colour rules and what has been checked: `docs/DESIGN_COLOURS.md`** (running
+text >= 7:1, borders / focus rings / icons >= 3:1, calculated from the real
+tokens; not an accessibility audit). Re-check contrast whenever a token
+changes. Clickable things always get a strong border (never a shadow alone).
+
+Tokens (all support `/opacity`, `rgb(var(--x) / <alpha-value>)`):
+`background`, `surface`, `surface-muted`, `text-primary/secondary/muted`,
+`border-subtle` (decorative + static cards), `border-strong` (anything
+interactive), `accent` (+ `-hover`, `-pressed`, `-soft`), `on-accent`,
+`success/warning/error` (+ `-soft`), `focus`, `teal` / `teal-soft`,
+`tint-1..5` (+ `-fg`; decorative only), `side-bg/fg/muted/recent/line` (the
+dark indigo sidebar; its focus ring is white, `--side-focus`),
+`hero-fg/sub` + `bg-hero` gradient, `shadow-card`, and `rounded-radius-sm/md/lg`
+(8/12/18 px; deliberately not `sm/md/lg`, which are Tailwind's own scale).
 
 Reusable component classes (`.ds-*` prefix, in `index.css` `@layer
 components`): `.ds-btn-primary`, `.ds-btn-secondary`, `.ds-btn-text`,
-`.ds-field` (input wrapper), `.ds-row` (clickable card row), `.ds-nav-item`
-/ `.ds-nav-item-active`.
+`.ds-field` (input wrapper), `.ds-row` (clickable card, strong border),
+`.ds-card` (static panel, soft shadow), `.ds-side` (sidebar shell),
+`.ds-nav-item` / `.ds-nav-item-active`, `.ds-chip`. `BrandMark.jsx` is the
+decorative (aria-hidden) logo.
+
+The tokens are baked in by Tailwind: **restart `npm run dev` after editing
+`tailwind.config.js`** (new utility classes are not generated on hot reload).
+
+Forced colors (Windows High Contrast): `index.css` ends with a
+`@media (forced-colors: active)` block (hides the "transparent" outline on
+unfocused controls, heavier border on the primary button, bar + underline on
+the current sidebar page). Keep those cues if you restyle those components.
+
+Redesign guardrails that were followed and should be kept: no change to
+visible text, accessible names, ARIA, roles, heading levels or DOM order (the
+accessibility tree of Welcome, Home, results and both lecture modes was diffed
+before/after and was identical). Only decorative `aria-hidden` elements were
+added. One deliberate wording change: the Paper theme's description in the
+Settings panel (Navbar.jsx) no longer says "Warm parchment" because it is no
+longer parchment-coloured.
 
 Typography: sans-serif everywhere in migrated screens (`font-sans` on the
 root wrapper div beats the global `body { font-serif }` base rule). No
@@ -39,11 +64,19 @@ focus-visible:outline-offset-2` (never plain `outline-none` without this
 replacement).
 
 ### Migration status
-- **Migrated**: Home.jsx, Sidebar.jsx, Navbar.jsx, Explanation.jsx.
-- **NOT migrated** (still old paper/ink/font-serif/eyebrow tokens):
-  Timeline.jsx, BookmarksScreen.jsx, LibraryScreen.jsx. Looking
-  inconsistent next to migrated screens is expected/known, not a bug.
-  Migrate these the same way Explanation.jsx was done if asked.
+- **Migrated to the semantic tokens**: every screen (Welcome, Home,
+  SubjectLectures, Explanation, Timeline, Library, Bookmarks, Voice notes,
+  Quiz, Sidebar, Navbar). (An older note here said Timeline / Bookmarks /
+  Library were not migrated; that was stale before the redesign.)
+- **Redesigned by hand** (layout/markup restyled): Welcome, Home, the result
+  cards, Sidebar (dark indigo + logo), and the Explanation screen's
+  segmented controls, 44 px small buttons, "now explaining" card in
+  Accessibility mode and Lecture Details panel. The other screens changed
+  through the shared tokens and `.ds-*` classes only.
+- Not done yet: app-wide high-contrast theme and app-wide text scaling (the
+  lecture screen's text size / high contrast are Study-mode only and not
+  saved), an Electron/installer app icon (only `public/favicon.svg` was
+  replaced).
 
 ## App.jsx — screens & routing
 

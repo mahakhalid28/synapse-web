@@ -1,4 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+/* No external font import: Atkinson Hyperlegible is self-hosted via
+   @fontsource (see main.jsx), so the app makes no font request to Google
+   and works offline. Inter / JetBrains Mono remain only as fallback names
+   in --font-sans / --font-mono for machines that happen to have them. */
 
 @tailwind base;
 @tailwind components;
@@ -84,27 +87,59 @@
 /* All values are space-separated RGB triplets (no rgb() wrapper), matching  */
 /* the paper/ink convention above, verified against WCAG 4.5:1 (text) / 3:1  */
 /* (UI boundaries, focus) before being committed here.                      */
+/* "Calm, colour-blocked" palette (visual redesign). Targets, checked with a
+   WCAG contrast calculation for the pairs listed in docs/DESIGN_COLOURS.md:
+   running text >= 7:1, borders / focus rings / icons >= 3:1. A calculation is
+   not an accessibility audit. */
 :root {
-  --bg:             244 245 247;
+  --bg:             226 230 248;
   --surface:        255 255 255;
-  --surface-muted:  238 240 243;
-  --text-primary:    20  24  31;
-  --text-secondary:  63  72  84;
-  --text-muted:      86  96 112;
-  --border-subtle:  213 218 225; /* decorative dividers only */
-  --border-strong:  123 133 148; /* inputs, buttons, toggles — anything interactive */
-  --accent:          36  86 166;
-  --accent-hover:    27  68 136;
-  --accent-pressed:  21  54 112;
-  --accent-soft:    232 239 250;
+  --surface-muted:  236 238 252;
+  --text-primary:    20  23  43;
+  --text-secondary:  55  62  92;
+  --text-muted:      58  65  98;
+  --border-subtle:  200 206 232; /* decorative dividers + static cards only */
+  --border-strong:  104 112 144; /* inputs, buttons, clickable cards, toggles — anything interactive */
+  --accent:          54  44 172;
+  --accent-hover:    43  35 140;
+  --accent-pressed:  34  27 112;
+  --accent-soft:    221 218 252;
   --on-accent:      255 255 255; /* text/icon color on a filled --accent surface */
-  --success:         30 122  80;
-  --success-soft:   230 243 236;
-  --warning:        138  90   0;
-  --warning-soft:   253 241 216;
-  --error:          179  38  30;
-  --error-soft:     251 233 231;
-  --focus:           11  42 102;
+  --success:         14  88  52;
+  --success-soft:   225 244 233;
+  --warning:        110  66   0;
+  --warning-soft:   253 241 214;
+  --error:          150  22  32;
+  --error-soft:     252 232 232;
+  --focus:           20  23  43;
+
+  /* Second brand colour + decorative tints (never the only carrier of meaning). */
+  --teal:             6  78  74;
+  --teal-soft:      200 238 233;
+  --tint-1: 221 218 252; --tint-1-fg:  48  40 156;
+  --tint-2: 200 238 233; --tint-2-fg:   6  78  74;
+  --tint-3: 253 230 178; --tint-3-fg: 100  58   0;
+  --tint-4: 252 219 228; --tint-4-fg: 135  20  52;
+  --tint-5: 205 241 219; --tint-5-fg:  12  80  46;
+
+  /* Dark indigo sidebar (light theme). Focus ring on it is white. */
+  --side-bg:          32  28  86;
+  --side-fg:         226 224 255;
+  --side-muted:      196 194 240;
+  --side-active-bg:  255 255 255;
+  --side-active-fg:   43  36 150;
+  --side-recent-bg:   47  42 112;
+  --side-line:        58  53 125;
+  --side-focus:      255 255 255;
+
+  /* Header band on Home / Welcome. White text over the whole gradient >= 9:1. */
+  --hero-from:       54  44 172;
+  --hero-to:          6  78  74;
+  --hero-fg:        255 255 255;
+  --hero-sub:       255 255 255;
+
+  --shadow-card:   0 1px 2px rgb(0 0 0 / 0.05), 0 10px 28px rgb(20 23 43 / 0.07);
+  --shadow-btn:    0 2px 6px rgb(54 44 172 / 0.28);
 
   /* Single swap point for the UI/reading and code typefaces (see Typography
      phase) — components should reference font-sans/font-mono, never a
@@ -113,39 +148,96 @@
   --font-sans: "Atkinson Hyperlegible Next", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Atkinson Hyperlegible Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
 }
 
-/* Dark theme — reuses the existing "night" theme switch already in Navbar's
-   theme picker rather than adding a second, separate dark-mode toggle.
-   Starting values from the design spec; every text/UI pair below was
-   verified to clear WCAG 4.5:1 (text) / 3:1 (UI boundaries, focus) against
-   its paired surface before being committed here. "sepia" intentionally has
-   no override for these new tokens and falls back to the light values above
-   — it's a 4th, non-spec'd theme; out of scope for this pass. */
+/* Night theme — the existing "night" switch in Navbar's theme picker.
+   Running text >= 7:1, borders / focus >= 3:1 (calculated). */
 [data-theme="night"] {
-  --bg:             16  20  25;
-  --surface:        23  28  35;
-  --surface-muted:  30  36  44;
-  --text-primary:  232 235 239;
-  --text-secondary:182 189 200;
-  --text-muted:    144 153 166;
-  --border-subtle:  43  50  60;
-  --border-strong: 107 118 134;
-  --accent:        127 168 240;
-  --accent-hover:  157 189 245;
-  --accent-pressed:181 206 248;
-  --accent-soft:    27  42  69;
-  --on-accent:      16  20  25; /* dark text on the (now light) filled accent, per spec */
-  --success:       111 199 153;
-  --success-soft:   18  42  30;
-  --warning:       230 173  90;
-  --warning-soft:   46  35  17;
-  --error:         237 128 118;
-  --error-soft:     46  26  24;
+  --bg:             14  17  32;
+  --surface:        23  27  46;
+  --surface-muted:  31  36  62;
+  --text-primary:  236 238 248;
+  --text-secondary:189 195 220;
+  --text-muted:    178 185 210;
+  --border-subtle:  45  52  82;
+  --border-strong: 118 127 165;
+  --accent:        184 180 255;
+  --accent-hover:  204 201 255;
+  --accent-pressed:214 212 255;
+  --accent-soft:    37  40  82;
+  --on-accent:      14  17  32; /* dark text on the (light) filled accent */
+  --success:       111 205 155;
+  --success-soft:   18  44  32;
+  --warning:       235 180  95;
+  --warning-soft:   48  37  18;
+  --error:         250 160 160;
+  --error-soft:     52  26  30;
   --focus:         255 255 255;
+
+  --teal:           94 214 200;
+  --teal-soft:      18  48  52;
+  --tint-1: 37 40 82; --tint-1-fg: 184 180 255;
+  --tint-2: 18 48 52; --tint-2-fg:  94 214 200;
+  --tint-3: 48 37 18; --tint-3-fg: 235 180  95;
+  --tint-4: 52 26 30; --tint-4-fg: 250 160 160;
+  --tint-5: 18 44 32; --tint-5-fg: 111 205 155;
+
+  --side-bg:         23  27  46;
+  --side-fg:        189 195 220;
+  --side-muted:     178 185 210;
+  --side-active-bg:  37  40  82;
+  --side-active-fg: 184 180 255;
+  --side-recent-bg:  31  36  62;
+  --side-line:       45  52  82;
+  --side-focus:     255 255 255;
+
+  --hero-from:       37  40  82;
+  --hero-to:         18  48  52;
+  --hero-fg:        236 238 248;
+  --hero-sub:       189 195 220;
+
+  --shadow-card:   0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px rgb(0 0 0 / 0.35);
+  --shadow-btn:    none;
+}
+
+/* Sepia — a warm reading theme. Overrides the same semantic tokens, so it now
+   themes the whole app instead of falling back to the light palette. */
+[data-theme="sepia"] {
+  --bg:             238 226 200;
+  --surface:        252 247 235;
+  --surface-muted:  244 235 213;
+  --text-primary:    48  30  14;
+  --text-secondary:  78  56  32;
+  --text-muted:      80  58  34;
+  --border-subtle:  214 198 168;
+  --border-strong:  120  92  58;
+  --accent:         104  50  16;
+  --accent-hover:    84  40  10;
+  --accent-pressed:  66  30   6;
+  --accent-soft:    238 218 186;
+  --on-accent:      255 255 255;
+  --focus:           48  30  14;
+
+  --teal:             8  70  66;
+  --teal-soft:      208 232 220;
+
+  --side-bg:         62  40  18;
+  --side-fg:        245 232 210;
+  --side-muted:     234 218 190;
+  --side-active-bg: 252 247 235;
+  --side-active-fg:  98  48  16;
+  --side-recent-bg:  84  58  30;
+  --side-line:       96  68  38;
+  --side-focus:     255 255 255;
+
+  --hero-from:      104  50  16;
+  --hero-to:          8  70  66;
+
+  --shadow-card:   0 1px 2px rgb(48 30 14 / 0.08), 0 10px 28px rgb(48 30 14 / 0.1);
+  --shadow-btn:    0 2px 6px rgb(122 62 24 / 0.3);
 }
 
 /* ── Base ────────────────────────────────────────────────────────────────── */
@@ -158,7 +250,7 @@
   }
 
   body {
-    @apply bg-paper text-ink-soft font-sans antialiased;
+    @apply bg-background text-text-primary font-sans antialiased;
     font-size: 16px;
     line-height: 1.6;
     font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
@@ -249,7 +341,12 @@
      phase for where). text-on-accent flips to dark text automatically in
      the night theme, per the design spec. */
   .ds-btn-primary {
-    @apply inline-flex items-center justify-center gap-2.5 px-6 py-3 min-h-[44px] bg-accent text-on-accent rounded-radius-md font-sans text-[14px] font-medium transition-colors focus-ring;
+    @apply inline-flex items-center justify-center gap-2.5 px-6 py-3 min-h-[48px] bg-accent text-on-accent rounded-radius-md font-sans text-[15px] font-semibold transition-colors focus-ring;
+    box-shadow: var(--shadow-btn);
+  }
+  /* Keep the focus ring on top of the button's own drop shadow. */
+  .ds-btn-primary:focus-visible {
+    box-shadow: 0 0 0 2px rgb(var(--surface)), 0 0 0 5px rgb(var(--focus));
   }
   .ds-btn-primary:hover:not(:disabled) {
     background-color: rgb(var(--accent-hover));
@@ -261,7 +358,7 @@
   /* Secondary — surface background, border-strong boundary (the
      "anything interactive" tier, not the decorative border-subtle one). */
   .ds-btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-surface border border-border-strong rounded-radius-md font-sans text-[14px] font-medium text-text-primary transition-colors focus-ring;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[48px] bg-surface border-[1.5px] border-border-strong rounded-radius-md font-sans text-[15px] font-semibold text-text-primary transition-colors focus-ring;
   }
   .ds-btn-secondary:hover:not(:disabled) {
     @apply bg-surface-muted;
@@ -295,7 +392,7 @@
      screen migrates, tracked per-phase). border-strong, not border-subtle:
      an input is an interactive control, not a decorative divider. */
   .ds-field {
-    @apply flex items-center gap-3 px-4 py-3 min-h-[44px] bg-surface border border-border-strong rounded-radius-md transition-colors;
+    @apply flex items-center gap-3 px-4 py-3 min-h-[56px] bg-surface border-[1.5px] border-border-strong rounded-radius-md transition-colors;
   }
   .ds-field:focus-within {
     @apply border-accent;
@@ -305,30 +402,57 @@
   /* Clickable card row — treated as interactive (border-strong), not a
      static panel. */
   .ds-row {
-    @apply block w-full text-left px-5 py-4 bg-surface border border-border-strong rounded-radius-md transition-colors focus-ring;
+    @apply block w-full text-left px-5 py-4 bg-surface border-[1.5px] border-border-strong rounded-radius-md transition-colors focus-ring;
+    box-shadow: var(--shadow-card);
   }
   .ds-row:hover {
     @apply bg-surface-muted;
   }
+  .ds-row:focus-visible {
+    box-shadow: 0 0 0 2px rgb(var(--surface)), 0 0 0 5px rgb(var(--focus));
+  }
+
+  /* Static (non-clickable) panel: soft shadow + subtle border. Anything the
+     user can click must use .ds-row (strong border) instead, so a control is
+     never identified by a shadow alone. */
+  .ds-card {
+    @apply bg-surface border border-border-subtle rounded-radius-lg;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Sidebar: dark indigo in light theme, so it uses its own --side-* tokens
+     (including a white focus ring, which stays visible on the dark ground). */
+  .ds-side {
+    background-color: rgb(var(--side-bg));
+    border-right: 1px solid rgb(var(--side-line));
+    color: rgb(var(--side-fg));
+  }
+  .ds-side .focus-ring:focus-visible {
+    box-shadow: 0 0 0 2px rgb(var(--side-bg)), 0 0 0 5px rgb(var(--side-focus));
+  }
 
   .ds-nav-item {
-    @apply flex items-center gap-2.5 px-3.5 py-2 min-h-[44px] rounded-radius-sm font-sans text-[14px] text-text-secondary transition-colors focus-ring;
+    @apply flex items-center gap-3 px-3.5 py-2 min-h-[46px] rounded-radius-md font-sans text-[15px] font-medium transition-colors focus-ring;
+    color: rgb(var(--side-fg));
   }
   .ds-nav-item:hover {
-    @apply text-text-primary bg-surface-muted;
+    background-color: rgb(var(--side-recent-bg));
   }
-  /* Active state is never color-only: accent text + accent-soft background
-     + font-semibold weight change together, on top of the left accent bar
-     and aria-current="page" already in Sidebar's own markup. */
-  .ds-nav-item-active {
-    @apply text-accent bg-accent-soft font-semibold;
+  /* Active state is never color-only: filled pill + bolder weight change
+     together, on top of aria-current="page" already in Sidebar's markup
+     (and an underline + inline bar in forced-colors mode, below). */
+  .ds-nav-item-active,
+  .ds-nav-item-active:hover {
+    @apply font-bold;
+    background-color: rgb(var(--side-active-bg));
+    color: rgb(var(--side-active-fg));
   }
 
   /* Neutral category/status chip (section 3) — color never carries the
      category distinction; an icon + text label (supplied by the caller)
-     does. 4px radius matches --radius-sm exactly, not a coincidence. */
+     does. */
   .ds-chip {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-muted border border-border-strong rounded-radius-sm font-sans text-[14px] font-medium text-text-primary;
+    @apply inline-flex items-center gap-1.5 px-3 py-1 bg-surface-muted border border-border-strong rounded-full font-sans text-[14px] font-medium text-text-primary;
   }
 
   /* ── Accessible Quiz & Practice (quiz screen only) ───────────────────── */
@@ -352,4 +476,25 @@
     --error: 0 0 0; --error-soft: 255 255 255; --focus: 0 0 0;
   }
   .quiz-contrast .quiz-box { border-width: 2px; border-color: rgb(0 0 0); }
+}
+
+/* Windows High Contrast / forced colors: the browser replaces our colours, so
+   fills and gradients stop carrying meaning. Keep the two cues that would
+   otherwise be lost: the primary button gets a heavier border than a
+   secondary one, and the current sidebar page gets a bar and an underline. */
+@media (forced-colors: active) {
+  /* The "transparent" outline used by .focus-ring and Tailwind's outline-none
+     is turned into a solid system-colour outline by forced colors, which drew
+     a permanent box around every control. Show it only while focused. */
+  .focus-ring:not(:focus-visible),
+  .outline-none:not(:focus-visible) {
+    outline-style: none;
+  }
+  .ds-btn-primary {
+    border: 3px solid ButtonText;
+  }
+  .ds-nav-item-active {
+    border-inline-start: 5px solid Highlight;
+    text-decoration: underline;
+  }
 }
