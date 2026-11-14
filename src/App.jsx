@@ -22,6 +22,7 @@ import { safeStartSeconds } from "./lib/lectureSeek";
 import { needsWelcome } from "./lib/onboardingPrefs";
 import { voiceControlEnabled } from "./lib/voiceFlag";
 import VoiceControl from "./voice/VoiceControl";
+import ScreenIntro from "./voice/ScreenIntro";
 import { useVoiceActions } from "./voice/voiceActions";
 import { getSavedLibrary, getSavedList, PERSONAL_CHANGED, personalRequest } from "./lib/personalApi";
 import { updatePersonalSummary } from "./storage";
@@ -838,8 +839,8 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
         accountControls={accountControls}
         onHelp={openHelp}
         leading={
-          voiceControlEnabled() && screen !== "welcome"
-            ? <VoiceControl disabled={helpOpen} registerHelpInterruption={registerHelpInterruption} />
+          voiceControlEnabled()
+            ? <VoiceControl screen={screen} disabled={helpOpen} registerHelpInterruption={registerHelpInterruption} />
             : null
         }
       />
@@ -962,7 +963,10 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-background text-text-primary font-sans">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-on-accent focus:px-4 focus:py-2 focus:rounded-radius-md focus-ring">Skip to main content</a>
-      <Navbar theme={theme} onThemeChange={setTheme} />
+      {/* Sign in and create account take voice for the username (never the password); the session check only
+        explains itself. */}
+      <Navbar theme={theme} onThemeChange={setTheme} leading={!voiceControlEnabled() ? null
+        : surface === "login" || surface === "signup" ? <VoiceControl screen={surface} /> : <ScreenIntro screen={surface} />} />
       {notice && <p role="status" aria-live="polite" className="p-3">{notice}</p>}
       <div className="flex-1 overflow-hidden">
         {surface === "restoring" ? (

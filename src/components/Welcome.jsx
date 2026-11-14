@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAnnouncer } from "../hooks/useAnnouncer";
+import { useVoiceActions } from "../voice/voiceActions";
 import {
   completeOnboarding,
   getSavedPresentationMode,
@@ -46,6 +47,16 @@ export default function Welcome({ onDone = () => {}, onOpenHelp = null }) {
     completeOnboarding();
     onDone();
   };
+
+  // Voice: the same choices as the buttons, so a learner who cannot see the screen gets started by voice.
+  useVoiceActions({
+    set_presentation_mode: ({ mode }) => {
+      if (!MODE_ORDER.includes(mode)) throw new Error("unknown mode");
+      setSelected(mode);
+    },
+    get_started: () => getStarted(),
+    skip_onboarding: () => skip(),
+  });
 
   return (
     <div className="h-full w-full bg-background font-sans overflow-hidden">

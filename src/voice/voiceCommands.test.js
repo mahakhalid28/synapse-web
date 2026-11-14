@@ -10,7 +10,7 @@ import { MESSAGES } from "./voiceMessages";
 const reply = (decision, extra = {}) => ({ decision, message_key: "k", confidence: 0.9, ...extra });
 const execute = (action, args = {}) => reply("execute", { action, args });
 
-function setup({ handlers = {}, describe = () => ({ screen: "explanation", videoId: "aircAruvnKk" }), responses = [], heard = { text: "x", language: "en" } } = {}) {
+function setup({ handlers = {}, describe = () => ({ screen: "explanation", videoId: "aircAruvnKk" }), responses = [], heard = { text: "x", language: "en" }, announcesScreens = false, screenRepliedSince = null, cue = () => {} } = {}) {
   const registry = createActionRegistry();
   registry.register({ handlers: () => handlers, context: describe });
   const said = [];
@@ -21,10 +21,185 @@ function setup({ handlers = {}, describe = () => ({ screen: "explanation", video
     interpretText: vi.fn(async () => queue.shift()),
     askQuestion: vi.fn(async () => ({ status: "answered", answer_text: "Because it saturates." })),
   };
-  const handle = createCommandHandler({ registry, speaker, deps });
+  const handle = createCommandHandler({ registry, speaker, deps, announcesScreens, screenRepliedSince, cue });
   return { handle, deps, said, speaker };
 }
 const utterance = { wav: new Blob(["w"]), before: null };
+
+describe("reading a list aloud", () => {
+  const results = (n) => Array.from({ length: n }, (_, i) => ({ ref: `v${i + 1}`, kind: "result", label: `Lecture ${i + 1}.`, position: i + 1 }));
+
+  it("reads the first page with numbers, says how to choose, and listens for the answer", async () => {
+    const env = setup({ describe: () => ({ screen: "home", items: results(8) }), responses: [execute("read_list")] });
+    expect(await env.handle(utterance)).toEqual({ followUp: true });
+    expect(env.said).toEqual(["There are 8 results. 1: Lecture 1. 2: Lecture 2. 3: Lecture 3. To choose one, say choose, and its number. Or say read more."]);
+  });
+
+  it("continues where it stopped, then says the list has ended", async () => {
+    const env = setup({ describe: () => ({ screen: "bookmarks", items: results(5) }),
+      responses: [execute("read_list"), execute("read_more"), execute("read_more")] });
+    await env.handle(utterance);
+    await env.handle(utterance);
+    expect(env.said[1]).toBe("4: Lecture 4. 5: Lecture 5. That is the end of the list. To choose one, say open, and its number.");
+    await env.handle(utterance);
+    expect(env.said[2]).toBe("That is the end of the list. Say read the results to hear it again.");
+  });
+
+  it("starts again from the top when the list changed since the last reading", async () => {
+    let items = results(5);
+    const env = setup({ describe: () => ({ screen: "library", items }), responses: [execute("read_list"), execute("read_more")] });
+    await env.handle(utterance);
+    items = results(2).map((item) => ({ ...item, ref: `new-${item.ref}` }));
+    await env.handle(utterance);
+    expect(env.said[1]).toMatch(/^There are 2 saved items\. 1: Lecture 1\. 2: Lecture 2\./);
+  });
+
+  it("says so when nothing is listed, without listening again", async () => {
+    const env = setup({ describe: () => ({ screen: "notes", items: [] }), responses: [execute("read_list")] });
+    expect(await env.handle(utterance)).toEqual({});
+    expect(env.said).toEqual(["There is nothing listed here yet."]);
+  });
+
+  it("is not available on screens without such a list", async () => {
+    const env = setup({ describe: () => ({ screen: "quiz", items: results(2) }), responses: [execute("read_list")] });
+    await env.handle(utterance);
+    expect(env.said).toHaveLength(1);
+    expect(env.said[0]).not.toMatch(/Lecture 1/);
+  });
+
+  it("offers read_list and read_more to the interpreter on every screen", async () => {
+    const env = setup({ describe: () => ({ screen: "home" }), responses: [execute("read_list")] });
+    await env.handle(utterance);
+    const available = env.deps.interpretText.mock.calls[0][0].context.available_actions;
+    expect(available).toEqual(expect.arrayContaining(["read_list", "read_more"]));
+  });
+});
+
+describe("asking how the explanations are going", () => {
+  it("says how many are ready on the lecture screen", async () => {
+    const env = setup({ describe: () => ({ screen: "explanation", preparationProgress: { total: 12, ready: 3, preparing: 9, failed: 0 } }),
+      responses: [execute("preparation_status")] });
+    await env.handle(utterance);
+    expect(env.said).toEqual(["3 of 12 explanations are ready. 9 are still being prepared."]);
+  });
+  it("reports the processing stage while the lecture is still being processed", async () => {
+    const env = setup({ describe: () => ({ screen: "explanation", preparationProgress: null, processingMessage: "Transcribing audio" }),
+      responses: [execute("preparation_status")] });
+    await env.handle(utterance);
+    expect(env.said[0]).toMatch(/still being processed: Transcribing audio/);
+  });
+});
+
+describe("sound cues", () => {
+  it("play 'done' when a command works", async () => {
+    const cue = vi.fn();
+    const env = setup({ handlers: { set_theme: vi.fn() }, responses: [execute("set_theme", { theme: "night" })], cue });
+    await env.handle(utterance);
+    expect(cue.mock.calls).toEqual([["done"]]);
+  });
+  it.each([
+    ["the command is not on this screen", { responses: [execute("set_theme", { theme: "night" })] }],
+    ["the command fails", { handlers: { set_theme: () => { throw new Error("no"); } }, responses: [execute("set_theme", { theme: "night" })] }],
+    ["nothing was heard", { heard: { text: "", no_speech: true } }],
+    ["the server cannot be reached", { responses: [] }],
+  ])("play 'error' when %s", async (_label, options) => {
+    const cue = vi.fn();
+    const env = setup({ ...options, cue });
+    if (_label === "the server cannot be reached") env.deps.interpretText.mockRejectedValueOnce(new Error("down"));
+    await env.handle(utterance);
+    expect(cue.mock.calls).toEqual([["error"]]);
+  });
+  it("never let a broken cue stop the reply", async () => {
+    const env = setup({ handlers: { set_theme: vi.fn() }, responses: [execute("set_theme", { theme: "night" })],
+      cue: () => { throw new Error("no audio device"); } });
+    await env.handle(utterance);
+    expect(env.said).toEqual(["Okay, switch to the night theme."]);
+  });
+});
+
+describe("truthful replies", () => {
+  it("let the screen's own message replace the generic Okay when the screen announced its result", async () => {
+    vi.useFakeTimers();
+    try {
+      const bookmark = vi.fn();
+      const env = setup({ handlers: { toggle_bookmark: bookmark }, responses: [execute("toggle_bookmark")],
+        screenRepliedSince: (since) => Date.now() >= since });
+      const done = env.handle(utterance);
+      await vi.advanceTimersByTimeAsync(400);
+      await done;
+      expect(bookmark).toHaveBeenCalledTimes(1);
+      expect(env.said).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("still say Okay when the screen announced nothing", async () => {
+    vi.useFakeTimers();
+    try {
+      const env = setup({ handlers: { set_theme: vi.fn() }, responses: [execute("set_theme", { theme: "night" })],
+        screenRepliedSince: () => false });
+      const done = env.handle(utterance);
+      await vi.advanceTimersByTimeAsync(400);
+      await done;
+      expect(env.said).toEqual(["Okay, switch to the night theme."]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("commands that open another screen", () => {
+  it("leave the confirmation to the new screen's spoken introduction", async () => {
+    const open = vi.fn();
+    const env = setup({ handlers: { navigate_bookmarks: open }, describe: () => ({ screen: "home" }),
+      responses: [execute("navigate_bookmarks")], announcesScreens: true });
+    expect(await env.handle(utterance)).toEqual({ leftScreen: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(env.said).toEqual([]);
+  });
+  it("still confirm when the learner is already on that screen (no introduction follows)", async () => {
+    const env = setup({ handlers: { navigate_bookmarks: vi.fn() }, describe: () => ({ screen: "bookmarks" }),
+      responses: [execute("navigate_bookmarks")], announcesScreens: true });
+    await env.handle(utterance);
+    expect(env.said).toEqual(["Okay, open your bookmarks."]);
+  });
+  it("still confirm when screens are not introduced", async () => {
+    const env = setup({ handlers: { navigate_bookmarks: vi.fn() }, describe: () => ({ screen: "home" }),
+      responses: [execute("navigate_bookmarks")] });
+    await env.handle(utterance);
+    expect(env.said).toEqual(["Okay, open your bookmarks."]);
+  });
+  it("ask risky questions, then listen for the answer by themselves", async () => {
+    const env = setup({ handlers: { remove_item: vi.fn() }, describe: () => ({ screen: "bookmarks" }),
+      responses: [reply("confirm", { action: "remove_item", args: { index: 1 } })] });
+    expect(await env.handle(utterance)).toEqual({ followUp: true });
+    expect(env.said.at(-1)).toBe("Do you want to remove item 1? Say yes or no after the tone.");
+  });
+  it("tell the learner to press Space when auto-listen is turned off", async () => {
+    localStorage.setItem("synapse_voice_autolisten", "off");
+    try {
+      const env = setup({ handlers: { remove_item: vi.fn() }, describe: () => ({ screen: "bookmarks" }),
+        responses: [reply("confirm", { action: "remove_item", args: { index: 1 } })] });
+      await env.handle(utterance);
+      expect(env.said.at(-1)).toBe("Do you want to remove item 1? Press Space and say yes or no.");
+    } finally {
+      localStorage.removeItem("synapse_voice_autolisten");
+    }
+  });
+  it("listen again after asking for a missing detail, but not after a plain failure", async () => {
+    const missing = setup({ describe: () => ({ screen: "home" }),
+      responses: [reply("unsupported", { message_key: "missing_query" })] });
+    expect(await missing.handle(utterance)).toEqual({ followUp: true });
+    expect(missing.said.at(-1)).toBe("What should I search for?");
+  });
+  it("say nothing when Synapse listened by itself and nobody answered", async () => {
+    const cue = vi.fn();
+    const env = setup({ heard: { text: "", no_speech: true }, cue });
+    expect(await env.handle({ ...utterance, auto: true })).toEqual({});
+    expect(env.said).toEqual([]);
+    expect(cue).not.toHaveBeenCalled();
+  });
+});
 
 describe("saved media commands", () => {
   it("accepts a spoken yes for a confirmation opened by a button", async () => {
