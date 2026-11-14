@@ -74,6 +74,7 @@ describe("Timeline screen", () => {
     const onOpenPoint = vi.fn();
     render(withRegistry(<Timeline jobId="j" videoId="v" onOpenPoint={onOpenPoint} />, registry));
     await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(registry.context().items).toHaveLength(2));
     const status = () => screen.getByRole("status").textContent;
 
     await act(async () => { registry.handlers().filter_moments({ category: "graph" }); });
@@ -107,7 +108,7 @@ describe("Quiz screen", () => {
     render(withRegistry(<QuizScreen videoId={VIDEO_ID} jobId="j" store={store} api={api} onBack={() => {}} />, registry));
 
     await screen.findByRole("heading", { name: "Set up your practice" });
-    expect(Object.keys(registry.handlers()).sort()).toEqual(["quiz_back", "quiz_start"]);
+    await waitFor(() => expect(Object.keys(registry.handlers()).sort()).toEqual(["quiz_back", "quiz_start"]));
 
     await act(async () => { await registry.handlers().quiz_start(); });
     await screen.findByRole("heading", { name: /^Question 1 of/ });

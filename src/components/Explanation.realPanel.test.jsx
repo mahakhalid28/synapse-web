@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import Explanation from "./Explanation";
+vi.mock("../lib/personalApi", async (original) => ({ ...await original(), trackLecture: vi.fn(async () => {}), personalRequest: vi.fn(async () => ({})) }));
 
 const h = vi.hoisted(() => {
   const players = [];
@@ -46,7 +47,9 @@ vi.mock("../api", () => ({
   })),
   retryExplanationPreparation: vi.fn(),
 }));
-vi.mock("../lib/notesStore.js", () => ({
+vi.mock("../lib/backendNotes.js", () => ({
+  holdDraft: vi.fn(),
+  discardStoredDraft: vi.fn(async () => true),
   listNotesForVideo: vi.fn(async () => []),
   deleteNote: vi.fn(),
   getNoteAudio: vi.fn(),

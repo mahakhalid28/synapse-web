@@ -304,6 +304,12 @@ describe("leaving the screen", () => {
     return { ...ctx, go };
   }
 
+  it("allows voice draft actions after capture has stopped while retaining the leave guard", async () => {
+    const { controlRef } = await leaveWhileRecording();
+    expect(controlRef.current.isBusy()).toBe(true);
+    expect(controlRef.current.isVoiceBlocked()).toBe(false);
+  });
+
   it("stops the microphone, does NOT leave yet, saves nothing, and asks with focus on the question", async () => {
     const { go, env, props } = await leaveWhileRecording();
     expect(go).not.toHaveBeenCalled();

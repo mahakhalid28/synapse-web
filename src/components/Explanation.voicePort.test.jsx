@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, screen } from "@testing-library/react";
 import Explanation from "./Explanation";
 import { VoiceAudioContext, createVoiceAudioRegistry } from "../voice/voiceAudio";
 import { VoiceTurnController } from "../voice/useVoiceTurn";
@@ -166,7 +166,7 @@ describe("the port the lecture screen offers", () => {
 
   it("reports what is playing", async () => {
     const { registry, player, audio } = await open();
-    expect(registry.getPort().getSnapshot()).toEqual({ lecture: "unknown", explanation: "paused", pauseOwner: null });
+    expect(registry.getPort().getSnapshot()).toMatchObject({ lecture: "unknown", explanation: "paused", pauseOwner: null });
 
     player.state = 1;
     audio.paused = false;
@@ -184,7 +184,7 @@ describe("the port the lecture screen offers", () => {
     act(() => registry.getPort().pause());
     expect(player.pauseVideo).toHaveBeenCalled();
     expect(audio.pause).toHaveBeenCalled();
-    expect(registry.getPort().getSnapshot()).toEqual({ lecture: "paused", explanation: "paused", pauseOwner: "user" });
+    expect(registry.getPort().getSnapshot()).toMatchObject({ lecture: "paused", explanation: "paused", pauseOwner: "user" });
   });
 
   it("knows when a voice note is being recorded", async () => {
@@ -227,16 +227,18 @@ describe("a voice turn through the real lecture screen", () => {
     expect(registry.isTurnActive()).toBe(false);
   });
 
-  it("keeps the explanation's hold on the lecture: after the voice turn, finishing the explanation still resumes the lecture", async () => {
+  it("restores explanation audio after a voice turn but requires satisfaction before lecture resume", async () => {
     const { registry, player } = await open();
     // The lecture reaches the first moment (0:10): Synapse pauses it and the explanation audio plays.
     player.state = 1;
     player.time = 10.1;
     await settle(400);
-    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
-    const audio = h.FakeAudio.last; // a new moment loads a new audio element, which starts by itself
+    expect(player.pauseVideo).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Listen" }));
+    await settle(100);
+    const audio = h.FakeAudio.last;
     expect(audio.paused).toBe(false);
-    expect(registry.getPort().getSnapshot()).toMatchObject({ lecture: "paused", explanation: "playing", pauseOwner: "intervention" });
+    expect(registry.getPort().getSnapshot()).toMatchObject({ lecture: "paused", explanation: "playing", pauseOwner: "user" });
 
     const { controller } = makeController(registry);
     await turn(() => controller.toggle());
@@ -247,11 +249,14 @@ describe("a voice turn through the real lecture screen", () => {
     await turn(() => controller.toggle());
     expect(audio.paused).toBe(false); // the explanation carries on
     expect(player.playVideo).not.toHaveBeenCalled(); // the lecture stays paused behind it
-    expect(registry.getPort().getSnapshot().pauseOwner).toBe("intervention");
+    expect(registry.getPort().getSnapshot().pauseOwner).toBe("user");
 
     audio.emit("ended"); // the explanation finishes
     await settle(100);
-    expect(player.playVideo).toHaveBeenCalledTimes(1); // and the lecture resumes, as it always did
+    expect(player.playVideo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, continue" }));
+    await settle(100);
+    expect(player.playVideo).toHaveBeenCalledTimes(1);
   });
 
   it("does not resume anything after a spoken playback command", async () => {

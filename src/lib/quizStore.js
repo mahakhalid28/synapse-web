@@ -1,3 +1,4 @@
+import { accountOwner, LOCAL_PROFILE_ID } from "./accountSession";
 // Local-only storage for Accessible Quiz & Practice (IndexedDB database "synapse_quiz").
 //
 // PROPOSED feature (docs/QUIZ_CONTRACT.md section 8): nothing imports this module yet. It
@@ -161,11 +162,11 @@ function describe(found) {
   return view;
 }
 
-function openDatabase(factory) {
+function openDatabase(factory, dbName = DB_NAME) {
   return new Promise((resolve, reject) => {
     let request;
     try {
-      request = factory.open(DB_NAME, DB_VERSION);
+      request = factory.open(dbName, DB_VERSION);
     } catch (err) {
       reject(mapError(err, "Could not open the practice database."));
       return;
@@ -218,7 +219,7 @@ export function createQuizStore(options = {}) {
   function getDb() {
     if (!factory) return Promise.reject(UNAVAILABLE());
     if (!dbPromise) {
-      const p = openDatabase(factory).then((db) => {
+      const p = openDatabase(factory, options.dbName).then((db) => {
         const forget = () => { if (dbPromise === p) dbPromise = null; };
         db.onversionchange = () => { db.close(); forget(); };
         db.onclose = forget;
@@ -603,8 +604,15 @@ export function createQuizStore(options = {}) {
 
 /* ── Default instance (created on first use, so importing this module is safe where IndexedDB does not exist) ── */
 
-let defaultStore = null;
-const store = () => (defaultStore ??= createQuizStore());
+const accountStores = new Map();
+export function forOwner(ownerId = accountOwner()) {
+  if (!accountStores.has(ownerId)) {
+    accountStores.set(ownerId, createQuizStore({ dbName: ownerId === LOCAL_PROFILE_ID ? DB_NAME : `${DB_NAME}_${ownerId}` }));
+  }
+  return accountStores.get(ownerId);
+}
+export const bindAccount = () => forOwner();
+const store = () => forOwner();
 
 export const saveQuiz = (quiz) => store().saveQuiz(quiz);
 export const startAttempt = (args) => store().startAttempt(args);

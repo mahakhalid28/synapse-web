@@ -80,7 +80,7 @@ describe("Voice notes screen", () => {
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings).toEqual(["Newton's Laws", "The Animal Cell"]);
     const cell = screen.getByRole("heading", { name: "The Animal Cell" }).closest("section");
-    expect(within(cell).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(cell).getAllByRole("listitem")).toHaveLength(3);
   });
 
   it("opens a note in its lecture with the whole note", async () => {

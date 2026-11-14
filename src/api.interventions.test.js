@@ -239,7 +239,7 @@ describe("persistent intervention retrieval", () => {
         timestamp: "1:05",
         category: "unknown",
       },
-      { id: laterId, timestamp: "1:01:01", category: "diagram" },
+      { id: laterId, timestamp: "1:01:01", category: "slide" },
     ]);
     expect(result.points[1].title).toBe("Visual moment");
   });

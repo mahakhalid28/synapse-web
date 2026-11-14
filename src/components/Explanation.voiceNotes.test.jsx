@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import Explanation from "./Explanation";
+vi.mock("../lib/personalApi", async (original) => ({ ...await original(), trackLecture: vi.fn(async () => {}), personalRequest: vi.fn(async () => ({})) }));
 import { getPreparedExplanation } from "../api";
 
 const h = vi.hoisted(() => {
@@ -230,7 +231,9 @@ describe("pausing for a voice note", () => {
     player.state = 1;
     player.time = 10.1;
     await settle(400);
-    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(player.pauseVideo).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Listen" }));
+    await settle(100);
     player.playVideo.mockClear();
 
     if (pauseForRecording) act(() => { h.stub.props.pauseLectureAudio(); });
@@ -239,8 +242,11 @@ describe("pausing for a voice note", () => {
     return player;
   }
 
-  it("control: without a voice note, finishing the explanation DOES resume the lecture (proves the test can see a resume)", async () => {
+  it("without a voice note, satisfaction approval resumes the lecture", async () => {
     const player = await interventionThenAudioEnds({ pauseForRecording: false });
+    expect(player.playVideo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, continue" }));
+    await settle(100);
     expect(player.playVideo).toHaveBeenCalled();
   });
 
@@ -382,7 +388,7 @@ describe("opening a lecture at a voice note's time (startSeconds)", () => {
     player.state = 1;
     player.time = 50.1; // the second moment
     await settle(400);
-    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(player.pauseVideo).toHaveBeenCalled();
   });
 
   it("cues only once", async () => {

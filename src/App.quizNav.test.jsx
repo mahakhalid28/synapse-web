@@ -10,9 +10,16 @@ import App from "./App";
 import { quizEnabled } from "./lib/quizFlag.js";
 import { safeStartSeconds } from "./lib/lectureSeek.js";
 
-const h = vi.hoisted(() => ({ explanation: null, quiz: null }));
+const h = vi.hoisted(() => ({ explanation: null, quiz: null, savedRows: [] }));
+
+vi.mock("./lib/personalApi", async (original) => ({ ...await original(),
+  getSavedLibrary: vi.fn(async () => JSON.parse(localStorage.getItem("synapse_library") || "[]").map((item) => ({ ...item, explanations: [item] }))),
+  getSavedList: vi.fn(async () => h.savedRows),
+}));
 
 vi.mock("./api", () => ({
+  cancelLectureExplanations: vi.fn(async () => {}),
+  openLectureExplanations: vi.fn(async () => {}),
   processVideo: vi.fn(async ({ videoId }) => ({ jobId: videoId })),
   resetMockTimer: vi.fn(),
 }));
@@ -39,6 +46,7 @@ const VIDEO = "aaaaaaaaaaa";
 const OTHER = "bbbbbbbbbbb";
 
 beforeEach(() => {
+  h.savedRows = [];
   h.explanation = null;
   h.quiz = null;
   try { localStorage.clear(); } catch { /* ignore */ }
@@ -158,9 +166,10 @@ describe("existing navigation still works with the flag on", () => {
       timestamp: "0:10", videoTitle: "The Animal Cell", explanation: { subtitle: "s" }, savedAt: 1_700_000_000_000,
     };
     localStorage.setItem("synapse_bookmarks", JSON.stringify([bookmark]));
+    h.savedRows = [{ ...bookmark, savedVersionId: "bm1" }];
     render(<App />);
     fireEvent.click(screen.getAllByRole("button", { name: /^Bookmarks/ })[0]);
-    fireEvent.click(await screen.findByRole("button", { name: "Open A diagram, from The Animal Cell" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Open and play explanation:/ }));
     await screen.findByRole("heading", { name: "Lecture stub" });
     expect(h.explanation).toMatchObject({ videoId: VIDEO, jobId: "job-A", pointId: "p2", mode: "deep" });
     expect(h.explanation.bookmarkData).toMatchObject({ id: "bm1" });

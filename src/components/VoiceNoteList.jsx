@@ -5,9 +5,10 @@
 // place.
 
 import { useEffect, useRef, useState } from "react";
-import { deleteNote as defaultDeleteNote } from "../lib/notesStore.js";
+import { deleteNote as defaultDeleteNote } from "../lib/backendNotes.js";
 import { formatClock, formatDuration } from "../hooks/useVoiceRecorder.js";
 import { noteTitle } from "../lib/voiceNoteText.js";
+import { useVoiceActions } from "../voice/voiceActions";
 
 const savedOn = (createdAt) =>
   new Date(createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -34,6 +35,10 @@ export default function VoiceNoteList({
   const pendingFocus = useRef(null); // element id to focus once the list has re-rendered
   const refocusDelete = useRef(null); // note whose Delete button gets focus once its confirmation closes
   const cancelRefs = useRef({});
+  const [page, setPage] = useState(0);
+  const lastPage = Math.max(0, Math.ceil(notes.length / 60) - 1);
+  const activePage = Math.min(page, lastPage);
+  const visible = notes.slice(activePage * 60, activePage * 60 + 60);
 
   const deleteButtonId = (id) => `${idPrefix}-delete-${id}`;
 
@@ -83,14 +88,39 @@ export default function VoiceNoteList({
     setConfirmingId(null);
     // The second argument tells the parent this was the last note, so it can
     // move focus somewhere sensible (this list unmounts when it is empty).
-    onRemoved(note.id, !neighbour);
+    onRemoved(note.id, !notes.some((entry) => entry.id !== note.id && entry.videoId === note.videoId));
     const left = totalCount - 1;
     announce(`Deleted ${noteTitle(note)}. ${left === 0 ? "No voice notes left." : `${left} left.`}`);
   };
 
+  useVoiceActions({
+    play_note: ({ index }) => { const note = visible[index - 1]; if (!note) throw new Error("No such note."); return player.toggle(note); },
+    stop_note_audio: () => player.stop(),
+    open_item: ({ index }) => { const note = visible[index - 1]; if (!note) throw new Error("No such note."); player.stop(); return onOpen(note); },
+    open_note: ({ index }) => { const note = visible[index - 1]; if (!note) throw new Error("No such note."); player.stop(); return onOpen(note); },
+    delete_note: ({ index }) => { const note = visible[index - 1]; if (!note) throw new Error("No such note."); setConfirmingId(note.id); },
+    open_note_explanation: ({ index, explanation }) => {
+      const note = visible[index - 1];
+      const item = note?.explanations?.[explanation - 1];
+      if (!item) throw new Error("No such nearby explanation.");
+      player.stop();
+      return onOpen({ ...note, savedExplanation: item });
+    },
+    next_saved_page: () => setPage(Math.min(activePage + 1, lastPage)),
+    previous_saved_page: () => setPage(Math.max(activePage - 1, 0)),
+    ...(confirmingId ? {
+      confirm_note_deletion: () => confirmDelete(notes.find((note) => note.id === confirmingId)),
+      cancel_note_deletion: () => cancelDelete(notes.find((note) => note.id === confirmingId)),
+      confirm_yes: () => confirmDelete(notes.find((note) => note.id === confirmingId)),
+      confirm_no: () => cancelDelete(notes.find((note) => note.id === confirmingId)),
+    } : {}),
+  }, () => ({ pendingConfirmation: confirmingId ? "confirm_note_deletion" : null,
+    confirmationRef: confirmingId || null,
+    items: visible.map((note, index) => ({ ref: note.id, kind: "note", label: noteTitle(note), position: index + 1 })) }));
+
   return (
-    <ul className="space-y-3 list-none p-0 m-0">
-      {notes.map((note) => {
+    <><ul className="space-y-3 list-none p-0 m-0">
+      {visible.map((note, index) => {
         const title = noteTitle(note);
         const playing = player.playingId === note.id;
         const confirming = confirmingId === note.id;
@@ -99,7 +129,8 @@ export default function VoiceNoteList({
             key={note.id}
             className="p-4 bg-surface border border-border-subtle rounded-radius-md"
           >
-            <div className="text-[16px] font-semibold text-text-primary leading-snug">{title}</div>
+            {note.lectureLabel && visible[index - 1]?.videoId !== note.videoId && <h2 className="text-[18px] font-semibold">{note.lectureLabel}</h2>}
+            <div className="text-[16px] font-semibold text-text-primary leading-snug"><span aria-hidden="true">{index + 1}. </span><span>{title}</span></div>
             <div className="text-[14px] text-text-secondary mt-1">
               <span className="font-mono tabular-nums">{formatClock(note.lectureSeconds)}</span>
               {" in the lecture · "}
@@ -112,6 +143,12 @@ export default function VoiceNoteList({
                 Warning: this recording may be silent.
               </div>
             )}
+            {note.explanations?.length > 0 && <div className="mt-2">
+              <p>Nearby explanations, within one minute of this note:</p>
+              <ul>{note.explanations.map((item, explanationIndex) => <li key={item.id}>
+                <button className="ds-btn-text" aria-label={`${title}: open nearby explanation ${explanationIndex + 1} at ${item.timestamp}, ${item.mode} depth`} onClick={() => onOpen({ ...note, savedExplanation: item })}>{explanationIndex + 1}. Open explanation at {item.timestamp}, {item.mode} depth</button>
+              </li>)}</ul>
+            </div>}
 
             {confirming ? (
               <div
@@ -175,5 +212,10 @@ export default function VoiceNoteList({
         );
       })}
     </ul>
+    {lastPage > 0 && <nav aria-label="Voice note pages" className="flex gap-3 mt-3">
+      <button className="ds-btn-secondary" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Previous page</button>
+      <span>Page {activePage + 1} of {lastPage + 1}</span>
+      <button className="ds-btn-secondary" disabled={activePage === lastPage} onClick={() => setPage(activePage + 1)}>Next page</button>
+    </nav>}</>
   );
 }

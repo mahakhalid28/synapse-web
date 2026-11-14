@@ -1,11 +1,12 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const {
   createPermissionPolicy,
   installPermissionPolicy,
-  packagedPageUrl,
 } = require("./electron/permissions.cjs");
 const { installYouTubeEmbedReferer } = require("./electron/youtubeReferer.cjs");
+const { PACKAGED_ORIGIN, startLocalFrontend } = require("./electron/localFrontend.cjs");
+const { installLegacyReader } = require("./electron/legacyReader.cjs");
 
 const isDev = !app.isPackaged;
 
@@ -15,7 +16,7 @@ const isDev = !app.isPackaged;
 // that the app genuinely needs shows up in the terminal.
 const permissionPolicy = createPermissionPolicy({
   isDev,
-  packagedUrl: packagedPageUrl(__dirname, path),
+  packagedUrl: `${PACKAGED_ORIGIN}/index.html`,
 });
 
 function createWindow() {
@@ -27,7 +28,8 @@ function createWindow() {
     backgroundColor: "#F7F4EC",
     webPreferences: {
       contextIsolation: true,
-      webSecurity: false,
+      webSecurity: true,
+      ...(isDev ? {} : { preload: path.join(__dirname, "electron", "legacyBridge.cjs") }),
     },
   });
 
@@ -38,14 +40,20 @@ function createWindow() {
   if (isDev) {
     win.loadURL("http://localhost:5173");
   } else {
+    installLegacyReader({ BrowserWindow, ipcMain, window: win, appDirectory: __dirname });
     // The packaged app is a file:// page, which sends no Referer; without one
     // YouTube refuses to play the embedded lecture (Error 153). See youtubeReferer.cjs.
     installYouTubeEmbedReferer(win.webContents.session);
-    win.loadFile(path.join(__dirname, "dist", "index.html"));
+    win.loadURL(`${PACKAGED_ORIGIN}/index.html`);
   }
 }
 
-app.whenReady().then(createWindow);
+let frontendServer = null;
+app.whenReady().then(async () => {
+  if (!isDev) frontendServer = await startLocalFrontend(path.join(__dirname, "dist"));
+  createWindow();
+}).catch((error) => { console.error("Synapse could not start its trusted frontend:", error); app.quit(); });
+app.on("will-quit", () => frontendServer?.close());
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

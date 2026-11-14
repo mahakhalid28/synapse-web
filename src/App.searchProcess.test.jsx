@@ -1,6 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App.jsx";
+
+vi.mock("./lib/lectureRequests", () => ({
+  LECTURE_SESSION_EXPIRED: "synapse-lecture-session-expired",
+  ensureLectureSession: vi.fn(async () => "lecture-session"),
+  releaseLectureSession: vi.fn(async () => true),
+  listLectureRequests: vi.fn(async () => []),
+  requestLectureExplanation: vi.fn(), retryLectureRequest: vi.fn(), updateLectureRequest: vi.fn(async () => {}),
+}));
 
 const SAMPLE_SEARCH_RESULTS = [
   {
@@ -15,6 +23,8 @@ const SAMPLE_SEARCH_RESULTS = [
     canonicalUrl: "https://www.youtube.com/watch?v=vid_short_1",
   },
 ];
+
+afterEach(() => vi.unstubAllEnvs());
 
 const h = vi.hoisted(() => {
   const processVideo = vi.fn();
@@ -59,6 +69,8 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock("./api.js", () => ({
+  cancelLectureExplanations: vi.fn(async () => {}),
+  openLectureExplanations: vi.fn(async () => {}),
   processVideo: h.processVideo,
   cancelProcessingJob: h.cancelProcessingJob,
   resumeProcessingJob: h.resumeProcessingJob,
@@ -404,6 +416,7 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
   });
 
   it("reconnects a refreshed persisted processing job without submitting a new one", async () => {
+    vi.stubEnv("VITE_ONBOARDING_ENABLED", "1");
     sessionStorage.setItem("synapse_active_processing_job", JSON.stringify({
       processingJobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       videoId: "dQw4w9WgXcQ",
@@ -436,6 +449,14 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
       expect.any(Object),
     );
     expect(h.processVideo).not.toHaveBeenCalled();
+    expect(h.reconnectProcessingJob).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("heading", { name: "Welcome to Synapse" })).toBeNull();
+    const resume = screen.getByRole("button", { name: "Resume Processing" });
+    fireEvent.click(screen.getByRole("button", { name: "Help" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Resume Processing" })).toBe(resume);
+    expect(h.reconnectProcessingJob).toHaveBeenCalledTimes(1);
   });
 
   it("keeps initial processing completion distinct from pending explanations", async () => {

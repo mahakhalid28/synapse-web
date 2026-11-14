@@ -1,9 +1,13 @@
+import { HOME_SHORTCUT_ROWS, LECTURE_SHORTCUT_ROWS, keysForAction, rowKeys } from "./shortcuts.js";
+
 export const MODE_COPY = {
   accessibility: {
     label: "Accessibility mode",
+    description: "The video is hidden but its audio still plays. Focus moves to each explanation, and every moment is listed.",
   },
   study: {
     label: "Study mode",
+    description: "The video is shown. Adds text size and contrast controls (not saved), a structured view where available, and the full timeline.",
   },
 };
 
@@ -17,6 +21,7 @@ export const WELCOME_MODE_DESCRIPTIONS = {
 };
 
 export const WELCOME_TITLE = "Welcome to Synapse";
+export const WELCOME_HELP = "How Synapse works";
 export const WELCOME_INTRO =
   "Synapse plays a YouTube lecture and pauses at diagrams, equations and charts to explain them. You can listen, read or watch.";
 export const WELCOME_MODE_HEADING = "How do you want to follow lectures?";
@@ -28,3 +33,128 @@ export const WELCOME_CONTINUE = "Continue";
 export const WELCOME_SKIP = "Skip for now";
 export const WELCOME_SAVE_FAILED =
   "Couldn't save your choice. You can switch modes on the lecture screen. Press Continue to go on.";
+
+export const HELP_TITLE = "How Synapse works";
+export const HELP_CLOSE = "Close";
+
+// Said (on the screen that stayed put) when Help is refused because a voice note is being recorded.
+export const HELP_BLOCKED_RECORDING =
+  `Help isn't available while you record a voice note. Stop with ${keysForAction("voiceNote")} or the Stop recording button, then open Help.`;
+
+/**
+ * What Help did to playback when it opened. Shown inside the dialog and read as its description,
+ * because the screen behind a modal dialog is inert and its live regions are not announced.
+ *   paused:      null | "lecture" | "both" (lecture and explanation audio)
+ *   stoppedNote: a voice note was playing and was stopped
+ * Returns "" when Help changed nothing.
+ */
+export function helpOpenNotice({ paused = null, stoppedNote = false } = {}) {
+  const parts = [];
+  if (paused === "both") parts.push("Lecture and explanation audio paused while Help is open.");
+  else if (paused === "lecture") parts.push("Lecture paused while Help is open.");
+  if (stoppedNote) parts.push("Voice note stopped while Help is open.");
+  return parts.join(" ");
+}
+
+/** The announcement when Help closes, only if it had paused or stopped something. "" otherwise. */
+export function helpClosedNotice({ paused = null, stoppedNote = false } = {}) {
+  const parts = [];
+  if (paused) parts.push("Playback is still paused.");
+  if (stoppedNote) parts.push("Voice note stopped.");
+  return parts.length ? `Help closed. ${parts.join(" ")}` : "";
+}
+
+/** The Help sections in reading order. Practice questions appear only when that feature is on. */
+export function getHelpSections({ practice = false } = {}) {
+  const sections = [
+    {
+      id: "what",
+      heading: "What Synapse does",
+      paragraphs: [
+        "Synapse plays a YouTube lecture and pauses at diagrams, equations and charts to explain them in text and audio.",
+      ],
+    },
+    {
+      id: "modes",
+      heading: "Two ways to follow a lecture",
+      paragraphs: [
+        ...MODE_ORDER.map((mode) => `${MODE_COPY[mode].label}: ${MODE_COPY[mode].description}`),
+        "Switch any time with the Presentation mode buttons on the lecture screen.",
+      ],
+    },
+    {
+      id: "start",
+      heading: "Starting a lecture",
+      paragraphs: ["On Home, paste a YouTube link or search, then choose a result."],
+    },
+    {
+      id: "shortcuts",
+      heading: "Keyboard shortcuts",
+      groups: [
+        { heading: "Home and subject pages", rows: HOME_SHORTCUT_ROWS },
+        { heading: "Lecture screen", rows: LECTURE_SHORTCUT_ROWS },
+      ].map((group) => ({
+        heading: group.heading,
+        items: group.rows.map((row) => ({ keys: rowKeys(row), description: row.description })),
+      })),
+      paragraphs: [
+        "On the lecture screen, shortcuts are ignored while you type in a text box such as the Ask box.",
+      ],
+    },
+    {
+      id: "during",
+      heading: "During a lecture",
+      paragraphs: [
+        `When the lecture pauses, Synapse asks whether you want to listen. After the explanation finishes, it asks whether it was clear. Answer yes to continue, or no to choose another depth. Press Alt+T to answer in English, or use the question buttons. The Listen button (${keysForAction("listen")}) pauses or replays audio.`,
+      ],
+    },
+    {
+      id: "notes",
+      heading: "Voice notes",
+      paragraphs: [
+        `${keysForAction("voiceNote")} records a note at the current moment. The lecture pauses and stays paused. Notes stay on this computer.`,
+      ],
+    },
+  ];
+  if (practice) {
+    sections.push({
+      id: "practice",
+      heading: "Practice questions",
+      paragraphs: ["Choose Practice this lecture below the explanation."],
+    });
+  }
+  sections.push(
+    {
+      id: "appearance",
+      heading: "Appearance",
+      paragraphs: ["Open Settings (the gear) to switch between Paper, Night and Sepia."],
+    },
+    {
+      id: "data",
+      heading: "Your data",
+      paragraphs: [
+        "Library, bookmarks, voice notes and settings are stored on this computer. Lecture links you start and questions you ask are sent to the Synapse server. Voice notes never leave this computer.",
+      ],
+    },
+  );
+  return sections;
+}
+
+// ── First-lecture guide card ─────────────────────────────────────────────────
+
+export const GUIDE_TITLE = "How this lecture works";
+export const GUIDE_GOT_IT = "Got it";
+export const GUIDE_OPEN_HELP = "Open Help";
+export const GUIDE_DISMISSED = "Guide hidden. Help has the same information.";
+
+/** The three steps of the card. Only the first differs by mode: the video is hidden in Accessibility mode. */
+export function getGuideSteps(mode) {
+  const play = keysForAction("playPause");
+  return [
+    mode === "study"
+      ? `Press play on the video, or ${play}, to begin.`
+      : `Press Play lecture (${play}) to begin.`,
+    `Synapse pauses at each diagram, equation or chart and asks whether you want to listen. After listening, answer yes to continue or no to choose another depth. Press Alt+T to answer in English, or use the question buttons. Press the Listen button (${keysForAction("listen")}) to pause or replay audio.`,
+    `Press ${keysForAction("hearShortcuts")} to hear all keyboard shortcuts.`,
+  ];
+}

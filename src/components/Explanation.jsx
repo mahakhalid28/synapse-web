@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { newLectureConversation, useExplanationConversation } from "../hooks/useExplanationConversation";
 import jsPDF from "jspdf";
 import Sidebar from "./Sidebar";
 import {
@@ -10,6 +11,8 @@ import {
   retryExplanationPreparation,
 } from "../api";
 import { API_MOCK_MODE } from "../lib/apiConfig";
+import { bookmarkSaved, getSaved, getSavedLecture, loadSavedAudio, normalMode, personalRequest, preserveExplanation, trackLecture } from "../lib/personalApi";
+import { captureAccount, assertAccount, currentAccount } from "../lib/accountSession";
 import {
   saveBookmark,
   removeBookmark,
@@ -23,6 +26,23 @@ import CategoryIcon from "./CategoryIcon";
 import AskLecture from "./AskLecture";
 import { formatTimestamp } from "../lib/askApi";
 import VoiceNotes from "./VoiceNotes";
+import {
+  LECTURE_SHORTCUT_ROWS,
+  LECTURE_SHORTCUTS_SPOKEN,
+  lectureActionForCode,
+  rowKeys,
+} from "../lib/shortcuts";
+import {
+  GUIDE_DISMISSED,
+  GUIDE_GOT_IT,
+  GUIDE_OPEN_HELP,
+  GUIDE_TITLE,
+  HELP_BLOCKED_RECORDING,
+  getGuideSteps,
+  helpClosedNotice,
+  helpOpenNotice,
+} from "../lib/onboardingText";
+import { dismissGuide, isGuideDismissed } from "../lib/onboardingPrefs";
 import { useVoiceAudio, useVoiceAudioPort } from "../voice/voiceAudio.js";
 import { useVoiceActions } from "../voice/voiceActions.js";
 import {
@@ -98,24 +118,7 @@ function computeFocusTransform(region) {
 // YT.PlayerState codes -> the names used by playerState below.
 const PLAYER_STATE_NAMES = { 0: "ended", 1: "playing", 2: "paused", 3: "buffering" };
 
-// Single source for the on-page list and the spoken version (Alt+K).
 const RATES = [0.75, 1, 1.25, 1.5, 2];
-
-const SHORTCUTS = [
-  ["Alt+P", "Play, pause or resume the lecture"],
-  ["Alt+L", "Listen to or pause the explanation audio"],
-  ["Alt+N", "Next moment"],
-  ["Alt+B", "Previous moment"],
-  ["Alt+R", "Read: jump to the start of the explanation"],
-  ["Alt+. / Alt+,", "Listen faster / slower"],
-  ["Alt+M", "Start or stop a voice note"],
-  ["Alt+K", "Hear this list"],
-];
-const SHORTCUTS_SPOKEN =
-  "Keyboard shortcuts. " +
-  SHORTCUTS.map(([k, d]) =>
-    `${k.replace("Alt+. / Alt+,", "Alt plus period, or Alt plus comma").replace("+", " plus ")}: ${d}.`,
-  ).join(" ");
 
 /**
  * Explanation — opens when the user clicks a point on the Timeline.
@@ -128,12 +131,19 @@ export default function Explanation({
   jobId,
   videoId,
   pointId = null,
-  mode = "standard",
+  mode: initialMode = "standard",
+  conversationSession = null,
   promise = null, // in-flight processVideo() promise when arriving straight from Home
   processingStatus = null,
   bookmarkData = null, // pre-populated when navigating from Bookmarks
   lectureMetadata = null, // title/channel/thumbnail/duration retained from search or saved entries
   autoPlay = false, // auto-start audio when navigating from Library
+  readOnly = false,
+  savedVersionId = null,
+  requestSessionId = null,
+  onActivateProcessing = null,
+  onReconnectSession = null,
+  onOpenSaved = null,
   startSeconds = null, // cue the lecture at this time (opening a voice note); null = use the moment's own time
   onNavigate: onNavigateRaw = () => {},
   onRetryProcessing: onRetryProcessingRaw = null,
@@ -143,7 +153,14 @@ export default function Explanation({
   processingActionError = null,
   onOpenTimeline: onOpenTimelineRaw = () => {}, // jumps to Timeline for this same lecture, carrying the active point over
   onStartPractice: onStartPracticeRaw = null, // opens Practice for this lecture; the button exists only when this is provided (feature flag)
+  registerHelpGuard = null, // App's Help dialog: this screen registers beforeHelp()/afterHelp() through this (see "Help" below)
+  onOpenHelp = null, // opens App's Help dialog (given the click event so focus can come back); the guide card's Help button exists only when this is provided
 }) {
+  const localSession = useMemo(() => newLectureConversation(videoId), [videoId]);
+  const session = conversationSession || localSession;
+  const [depthSelection, setDepthSelection] = useState(() => ({ videoId, initialMode, depth: session.question?.depth || session.waiting?.depth || session.selections.get(pointId) || initialMode }));
+  const mode = depthSelection.videoId === videoId && depthSelection.initialMode === initialMode ? depthSelection.depth : initialMode;
+  const setMode = (depth) => setDepthSelection({ videoId, initialMode, depth });
   const initialLectureMetadata = lectureMetadata || bookmarkData || {};
   const initialPoint = bookmarkData
     ? {
@@ -228,7 +245,7 @@ export default function Explanation({
   });
   useEffect(() => () => clearTimeout(expectedStateRef.current?.timer), []);
 
-  const [activePointId, setActivePointId] = useState(pointId);
+  const [activePointId, setActivePointId] = useState(pointId ?? session.question?.point.id ?? session.waiting?.point.id);
   // Explicit user selection, or the first point once points have loaded, if
   // nothing's been chosen yet (arriving straight from Home rather than via
   // Timeline/Bookmarks/Library, where a specific point is already known).
@@ -237,6 +254,16 @@ export default function Explanation({
     bookmarkData?.explanation || null,
   );
   const [bookmarked, setBookmarked] = useState(false);
+  const [savedItems, setSavedItems] = useState([]);
+  const [savedCurrent, setSavedCurrent] = useState(null);
+  const [requestedSaved, setRequestedSaved] = useState(new Map());
+  const requestedVersion = requestedSaved.get(`${effectiveActivePointId}::${normalMode(mode)}`);
+  const [storageError, setStorageError] = useState(null);
+  const [savedLoadVersion, setSavedLoadVersion] = useState(0);
+  const bookmarkBusy = useRef(false);
+  const bookmarkStates = useRef(new Map());
+  const selectedSave = savedItems.find((item) => item.id === savedVersionId && item.pointId === effectiveActivePointId && normalMode(item.mode) === normalMode(mode))
+    || savedItems.find((item) => item.pointId === effectiveActivePointId && normalMode(item.mode) === normalMode(mode));
   const preparationPointKey = allPoints.map((point) => point.id).join("|");
   const preparationContextKey = `${videoId}::${mode}::${preparationPointKey}`;
   const [preparationById, setPreparationById] = useState(() => new Map());
@@ -248,22 +275,21 @@ export default function Explanation({
   const [preparationPollVersion, setPreparationPollVersion] = useState(0);
   const [retryingPointId, setRetryingPointId] = useState(null);
   const [explanationLoadError, setExplanationLoadError] = useState(null);
-  const activePreparation = API_MOCK_MODE
+  const activePreparation = requestedVersion ? { status: "ready", retryable: false } : readOnly
+    ? { status: selectedSave ? "ready" : "cancelled", error_code: null, attempt_count: 0 }
+    : API_MOCK_MODE
     ? { status: "ready", error_code: null, attempt_count: 0 }
     : preparationContext === preparationContextKey
       ? preparationById.get(effectiveActivePointId) ?? null
       : null;
-  const effectivePreparationPhase = preparationContext === preparationContextKey
+  const effectivePreparationPhase = readOnly ? "ready" : preparationContext === preparationContextKey
     ? preparationPhase
     : "idle";
   const explanationsPreparing =
     !API_MOCK_MODE &&
     processingStatus?.status === "succeeded" &&
     allPoints.length > 0 &&
-    !allPoints.every((point) => {
-      const status = preparationById.get(point.id)?.status;
-      return status === "ready" || status === "failed";
-    });
+    [...preparationById.values()].some((item) => item.requested !== false && ["pending", "generating"].includes(item.status));
 
   // Inline processing status (replaces the old full-screen Processing
   // route) — tracks the same processVideo() promise Home kicked off.
@@ -314,13 +340,26 @@ export default function Explanation({
   // whether auto-resume is allowed — never a plain boolean.
   const [pauseOwner, setPauseOwner] = useState(null);
   const pauseOwnerRef = useRef(pauseOwner); // lets the TTS "ended" handler read the latest value without re-binding
-  const triggeredPointIdsRef = useRef(new Set()); // intervention points already auto-triggered this session
+  const triggeredPointIdsRef = useRef(session.triggered); // intervention points already auto-triggered this session
   const autoPlayPreparationKeyRef = useRef(null);
   const announcedPreparationRef = useRef(null);
   // Set by <VoiceNotes>: toggle() for Alt+M, lectureStarted() when the lecture or
   // TTS is started (blocks it while a note is being recorded), requestLeave(fn)
   // to save or discard an unsaved recording before navigating away. Null until mounted.
   const voiceControlRef = useRef(null);
+  // True from the moment Help is asked for until it closes. While true, NOTHING may start the lecture
+  // video or the explanation audio: three paths check it (the audio effect's autoplay, the
+  // intervention watcher, and the player's PLAYING event), and the shortcut listener ignores keys.
+  const helpOpenRef = useRef(false);
+  const libraryAutoPlayAllowedRef = useRef(true);
+  // What Help paused or stopped, so its closing message is honest. { paused: null|"lecture"|"both", stoppedNote }
+  const helpDidRef = useRef({ paused: null, stoppedNote: false });
+
+  // The "How this lecture works" card (dismissed for good with its own flag, never synapse_intro_seen,
+  // which belongs to the spoken introduction and is untouched). Read once when the screen opens.
+  const [guideVisible, setGuideVisible] = useState(() => !isGuideDismissed());
+  // Both Presentation mode buttons, by mode, so "Got it" can return focus to whichever is selected.
+  const modeButtonRefs = useRef({});
 
   // "accessibility" (default) | "study" — purely a rendering choice. Every
   // piece of state/data-fetching/pauseOwner/timestamp-watching above is
@@ -375,10 +414,89 @@ export default function Explanation({
 
   // Never auto-reads: the explanation waits for the learner to press Listen
   // (or read it with their own screen reader). Focus just goes to its start.
-  const focusExplanationStart = () => {
-    if (presentationModeRef.current !== "accessibility") return;
-    setTimeout(() => explanationHeadingRef.current?.focus(), 0);
-  };
+
+  const conversationHeadingRef = useRef(null);
+  const conversation = useExplanationConversation({
+    requestSessionId,
+    activate: onActivateProcessing,
+    progressError: setStorageError,
+    registerPoint: (point, previousId) => setAllPoints((current) => {
+      if (current.some((item) => item.id === point.id)) return current;
+      return [...current.filter((item) => item.id !== previousId), point];
+    }),
+    prepared: async (item, signal) => {
+      const saved = await getSaved(item.saved_explanation_id, { signal });
+      if (!signal?.aborted) setRequestedSaved((current) => new Map(current).set(
+        `${item.point.id}::${normalMode(item.output_mode)}`, saved));
+    },
+    readOnly,
+    hasSavedVersion: (id, depth) => savedItems.some((item) => item.pointId === id && normalMode(item.mode) === normalMode(depth)),
+    questionHeading: conversationHeadingRef,
+    videoId, session, points: allPoints, processing: isProcessing,
+    depth: mode, defaultDepth: initialMode, activePointId: effectiveActivePointId, audioUrl,
+    preparations: readOnly ? new Map(allPoints.map((point) => [point.id, { status: savedItems.some((item) => item.pointId === point.id && normalMode(item.mode) === normalMode(mode)) ? "ready" : "cancelled", retryable: false }])) : preparationContext === preparationContextKey ? preparationById : null,
+    preparationPhase: effectivePreparationPhase,
+    lectureState: playerState, announce, audioError, explanationLoadError,
+    guarded: () => helpOpenRef.current || Boolean(voiceControlRef.current?.isBusy?.() || voiceControlRef.current?.isPlaying?.()),
+    pause: () => {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      playerRef.current?.pauseVideo?.();
+      pauseOwnerRef.current = "user";
+      setPauseOwner("user");
+      autoPlayPreparationKeyRef.current = null;
+    },
+    stop: () => { audioRef.current?.pause(); setIsPlaying(false); },
+    select: (id, depth) => {
+      if (id !== effectiveActivePointId || depth !== mode) {
+        preloadedExpl.current = null;
+        setAudioUrl(null);
+        setExplanation(null);
+      }
+      setActivePointId(id);
+      setMode(depth);
+    },
+    position: () => playerRef.current?.getCurrentTime?.() ?? 0,
+    explanationPosition: () => audioRef.current?.currentTime ?? 0,
+    playerState: () => playerRef.current?.getPlayerState?.(),
+    play: () => {
+      const audio = audioRef.current;
+      if (!audio) return Promise.reject(new Error("Audio not loaded"));
+      return audio.play().then(() => setIsPlaying(true));
+    },
+    resume: (position) => {
+      if (voiceControlRef.current?.lectureStarted()) return;
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      if (position != null) playerRef.current?.seekTo?.(position, true);
+      pauseOwnerRef.current = null;
+      setPauseOwner(null);
+      playerRef.current?.playVideo?.();
+    },
+  });
+  const conversationRef = useRef(null);
+  useEffect(() => { conversationRef.current = conversation; });
+
+  useEffect(() => {
+    if (API_MOCK_MODE) return;
+    const account = captureAccount();
+    let alive = true;
+    let queue = Promise.resolve();
+    let lastPosition = null;
+    const savePosition = () => {
+      const position = playerRef.current?.getCurrentTime?.();
+      if (!Number.isFinite(position) || position < 0 || position === lastPosition) return;
+      lastPosition = position;
+      const observedAt = new Date().toISOString();
+      queue = queue.catch(() => {}).then(() => personalRequest(`playback/${encodeURIComponent(videoId)}`, {
+        account,
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position_seconds: position, completed: false, observed_at: observedAt }),
+      })).catch((error) => { if (alive) setStorageError(error.message); });
+    };
+    const timer = setInterval(savePosition, 15000);
+    return () => { savePosition(); alive = false; clearInterval(timer); };
+  }, [videoId]);
 
   useEffect(() => {
     localStorage.setItem("synapse_presentation_mode", presentationMode);
@@ -389,6 +507,7 @@ export default function Explanation({
   // videoId dependency), since a previously-played point should still read
   // as played when revisited.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset tracking when the external lecture player changes
     setPlayedPointIds(new Set());
   }, [videoId]);
 
@@ -424,7 +543,25 @@ export default function Explanation({
   // processing to finish, since the backend has nothing to return until then.
   useEffect(() => {
     if (isProcessing || processingError || processingStatus?.status === "cancelled") return;
-    getInterventionPoints(jobId, videoId)
+    const account = captureAccount();
+    (readOnly ? getSavedLecture(videoId).then(async (items) => {
+      setSavedItems(items);
+      let result;
+      try { result = await getInterventionPoints(jobId, videoId); }
+      catch { result = { points: [], videoTitle: lectureMetadata?.videoTitle || "Saved lecture" }; }
+      const byId = new Map(result.points.map((point) => [point.id, point]));
+      for (const item of items) {
+        byId.set(item.pointId, { ...byId.get(item.pointId), id: item.pointId, title: item.title,
+          category: item.category, timestamp: item.timestamp, _frame_path: item.frameUrl });
+      }
+      if (!byId.size) byId.set("saved-position", { id: "saved-position", title: "Lecture position", category: "text", timestamp: formatTimestamp(startSeconds || 0) });
+      return { ...result, points: [...byId.values()].sort((a, b) => parseTimestampToSeconds(a.timestamp) - parseTimestampToSeconds(b.timestamp)) };
+    }) : getInterventionPoints(jobId, videoId).then(async (result) => {
+      if (!API_MOCK_MODE) {
+        try { assertAccount(account); await trackLecture(videoId, { account }); } catch (error) { setStorageError(error.message); }
+      }
+      return result;
+    }))
       .then((result) => {
         setAllPoints(result.points);
         if (result.points.length === 0) {
@@ -466,18 +603,23 @@ export default function Explanation({
       })
       .catch((err) => {
         console.error("Failed to load points:", err);
+        if (readOnly) {
+          setStorageError(err?.message || "Saved lecture could not be loaded.");
+          setAllPoints([{ id: pointId || "saved-position", title: "Saved lecture", category: "text", timestamp: formatTimestamp(startSeconds || 0) }]);
+          return;
+        }
         setProcessingError(
           err?.message || "Could not load this lecture's intervention moments.",
         );
       });
-  }, [jobId, videoId, pointId, isProcessing, processingError, processingStatus?.status]);
+  }, [jobId, videoId, pointId, isProcessing, processingError, processingStatus?.status, readOnly, lectureMetadata?.videoTitle, savedLoadVersion, startSeconds]);
 
   // One cancellable poll loop covers every intervention in the selected
   // lecture/mode. It stops once all known points are ready or failed, and is
   // restarted explicitly after retry. No per-intervention timers are created.
   useEffect(() => {
     if (
-      API_MOCK_MODE ||
+      readOnly || API_MOCK_MODE ||
       isProcessing ||
       processingError ||
       processingStatus?.status === "cancelled" ||
@@ -533,7 +675,7 @@ export default function Explanation({
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [videoId, mode, preparationPointKey, preparationContextKey, preparationPollVersion, isProcessing, processingError, processingStatus?.status]);
+  }, [videoId, mode, preparationPointKey, preparationContextKey, preparationPollVersion, isProcessing, processingError, processingStatus?.status, readOnly]);
 
   // Initialize the real YouTube player once the API is loaded and the
   // container is in the DOM. Kept alive for the life of this videoId —
@@ -558,7 +700,13 @@ export default function Explanation({
           // playing, pause ownership is released either way.
           onStateChange: (e) => {
             const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
-            if (e.data === YT_PLAYING) {
+            // Help guard: a PLAYING event that arrives while Help is open (buffering finishing, a
+            // play command that was already on its way) is undone every time it happens. The
+            // pause owner is left as it is and nothing is confirmed or announced.
+            const heldByHelp = e.data === YT_PLAYING && (helpOpenRef.current || conversationRef.current.isBlocked());
+            if (heldByHelp) {
+              e.target?.pauseVideo?.();
+            } else if (e.data === YT_PLAYING) {
               setPauseOwner(null);
               // While a voice note is being recorded this pauses the lecture again
               // (and says why); otherwise it just stops a voice note that is playing.
@@ -566,7 +714,7 @@ export default function Explanation({
             }
             const name = PLAYER_STATE_NAMES[e.data] ?? "unstarted";
             setPlayerState(name);
-            confirmPlayerStateRef.current(name);
+            if (!heldByHelp) confirmPlayerStateRef.current(name);
           },
         },
       });
@@ -619,50 +767,21 @@ export default function Explanation({
 
     const YT_PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
     const interval = setInterval(() => {
+      // Help guard: while Help is open this watcher does nothing (it could otherwise pause, switch
+      // moment and start the explanation audio).
+      if (helpOpenRef.current) return;
       const player = playerRef.current;
       if (!player || typeof player.getPlayerState !== "function") return;
       if (player.getPlayerState() !== YT_PLAYING) return;
 
       const currentSeconds = player.getCurrentTime();
       for (const point of allPoints) {
+        if (point.origin === "manual") continue;
         if (triggeredPointIdsRef.current.has(point.id)) continue;
         const pointSeconds = parseTimestampToSeconds(point.timestamp);
         if (Math.abs(currentSeconds - pointSeconds) <= 0.5) {
           triggeredPointIdsRef.current.add(point.id);
-          autoPlayPreparationKeyRef.current = `${videoId}::${mode}::${point.id}`;
-          player.pauseVideo();
-          setPauseOwner("intervention");
-          setActivePointId(point.id);
-          // The one announcement for this event (the visible status line is
-          // deliberately not a live region) — names the moment so the
-          // learner knows what changed without hunting for the heading.
-          const n = allPoints.findIndex((p) => p.id === point.id) + 1;
-          const preparationStatus = API_MOCK_MODE
-            ? "ready"
-            : preparationById.get(point.id)?.status;
-          if (
-            preparationStatus === "ready" &&
-            effectiveActivePointId === point.id &&
-            audioRef.current &&
-            !voiceControlRef.current?.lectureStarted()
-          ) {
-            autoPlayPreparationKeyRef.current = null;
-            audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-          }
-          announcedPreparationRef.current = `${videoId}::${mode}::${point.id}::${
-            preparationStatus === "pending" || preparationStatus === "generating"
-              ? "waiting"
-              : preparationStatus || "unavailable"
-          }`;
-          const preparationMessage = preparationStatus === "ready"
-            ? "The prepared explanation will play now."
-            : preparationStatus === "failed"
-              ? "The explanation could not be prepared. Retry, skip, or resume when ready."
-              : "The explanation is still being prepared. You can wait, skip it, or resume the lecture.";
-          announce(
-            `Paused at moment ${n} of ${allPoints.length}, ${point.timestamp}. ${capitalize(point.category)}: ${point.title}. ${preparationMessage}`,
-          );
-          focusExplanationStart();
+          conversationRef.current.encounter(point);
           break;
         }
       }
@@ -679,45 +798,6 @@ export default function Explanation({
     effectiveActivePointId,
   ]);
 
-  // Announce meaningful transitions for the currently paused intervention,
-  // not every poll response. Pending and generating share one "waiting"
-  // bucket so screen readers are not flooded with repeated progress updates.
-  useEffect(() => {
-    if (pauseOwner !== "intervention" || !effectiveActivePointId || API_MOCK_MODE) return;
-    let bucket;
-    let message;
-    if (activePreparation?.status === "ready") {
-      bucket = "ready";
-      message = "The explanation is ready. Loading its text and audio.";
-    } else if (activePreparation?.status === "failed") {
-      bucket = "failed";
-      message = "The explanation could not be prepared. Retry, skip, or resume the lecture.";
-    } else if (
-      activePreparation?.status === "pending" ||
-      activePreparation?.status === "generating"
-    ) {
-      bucket = "waiting";
-      message = "The explanation is being prepared. You can wait, skip it, or resume the lecture.";
-    } else if (effectivePreparationPhase === "unavailable" || effectivePreparationPhase === "stopped") {
-      bucket = "unavailable";
-      message = "Preparation status is unavailable. You can check again or continue watching.";
-    } else {
-      bucket = "checking";
-      message = "Checking whether this explanation is ready.";
-    }
-    const key = `${videoId}::${mode}::${effectiveActivePointId}::${bucket}`;
-    if (announcedPreparationRef.current === key) return;
-    announcedPreparationRef.current = key;
-    announce(message);
-  }, [
-    pauseOwner,
-    effectiveActivePointId,
-    activePreparation?.status,
-    effectivePreparationPhase,
-    videoId,
-    mode,
-  ]);
-
   // Load only explanations P2 reports ready. In real mode the read-only GET
   // endpoint is used, so waiting never starts duplicate generation.
   useEffect(() => {
@@ -730,7 +810,9 @@ export default function Explanation({
     // mock delay, but matters the moment responses stop all resolving in
     // call order (e.g. a real backend with variable latency).
     let cancelled = false;
+    const account = captureAccount();
     const controller = new AbortController();
+    /* eslint-disable react-hooks/set-state-in-effect -- synchronize the player reset and loading state before starting its external media request */
     if (!preloadedExpl.current) setExplanation(null);
     setCurrentTime(0);
     setIsPlaying(false);
@@ -745,6 +827,29 @@ export default function Explanation({
 
     setBookmarked(isBookmarked(`${videoId}-${effectiveActivePointId}`));
 
+    if (readOnly || requestedVersion) {
+      const selected = requestedVersion || selectedSave;
+      setExplanation(selected?.explanation || null);
+      let savedAudio = null;
+      if (selected?.audioUrl && currentAccount().token) {
+        setAudioUrl(null);
+        loadSavedAudio(selected, { signal: controller.signal }).then((url) => {
+          if (controller.signal.aborted) { URL.revokeObjectURL?.(url); return; }
+          savedAudio = url;
+          setAudioUrl(url);
+          setAudioLoading(false);
+        }).catch((error) => {
+          if (!controller.signal.aborted) { setAudioError(error.message); setAudioLoading(false); }
+        });
+      } else setAudioUrl(selected?.audioUrl || null);
+      setSavedCurrent(selected || null);
+      setBookmarked(bookmarkStates.current.get(selected?.id) ?? selected?.bookmarked ?? false);
+      setAudioLoading(Boolean(selected?.audioUrl && currentAccount().token));
+      if (!selected) setExplanationLoadError("There is no saved explanation at this depth. Other saved explanations are available in the lecture contents.");
+      else personalRequest(`saved-explanations/${selected.id}/viewed`, { method: "PUT" }).catch((error) => setStorageError(error.message));
+      return () => { controller.abort(); if (savedAudio) URL.revokeObjectURL?.(savedAudio); };
+    }
+
     if (!API_MOCK_MODE && activePreparation?.status !== "ready") {
       setExplanation(null);
       setAudioLoading(false);
@@ -757,10 +862,20 @@ export default function Explanation({
         signal: controller.signal,
       })
         .then(({ explanation: preparedText, audio }) => {
-          if (cancelled) return;
+          if (cancelled) { if (audio.audio_file_path?.startsWith("blob:")) URL.revokeObjectURL?.(audio.audio_file_path); return; }
           setExplanation(preparedText);
           setAudioUrl(audio.audio_file_path);
           setAudioError(audio.audio_error || null);
+          if (audio.explanation_id) {
+            assertAccount(account);
+            preserveExplanation(audio.explanation_id, { account }).then((saved) => {
+              if (cancelled) return;
+              setSavedCurrent(saved);
+              setStorageError(null);
+              setBookmarked(saved.bookmarked);
+              return personalRequest(`saved-explanations/${saved.id}/viewed`, { method: "PUT" });
+            }).catch((error) => { if (!cancelled) setStorageError(error.message); });
+          }
         })
         .catch((error) => {
           if (cancelled || error?.name === "AbortError") return;
@@ -813,7 +928,8 @@ export default function Explanation({
       cancelled = true;
       controller.abort();
     };
-  }, [effectiveActivePointId, mode, videoId, activePreparation?.status]);
+  }, [effectiveActivePointId, mode, videoId, activePreparation?.status, readOnly, selectedSave, requestedVersion]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Wire up the HTML5 Audio element whenever the URL changes
   useEffect(() => {
@@ -830,6 +946,7 @@ export default function Explanation({
       setAudioError(
         "Explanation audio could not be played. You can still read the explanation.",
       );
+      conversationRef.current.playbackError();
     };
     const onEnded = () => {
       setIsPlaying(false);
@@ -843,19 +960,7 @@ export default function Explanation({
           ? prev
           : new Set(prev).add(effectiveActivePointId),
       );
-      // Auto-resume the video only if Synapse is the one holding the pause —
-      // read via the ref since this listener isn't re-bound on every
-      // pauseOwner change (see pauseOwnerRef above).
-      if (pauseOwnerRef.current === "intervention") {
-        // Said only once the player really is playing again.
-        expectPlayerState(
-          "playing",
-          "Explanation finished. Lecture resumed.",
-          "Explanation finished, but the lecture did not resume. Press Resume lecture.",
-        );
-        playerRef.current?.playVideo?.();
-        setPauseOwner(null);
-      }
+      if (!readOnly) conversationRef.current.ended(effectiveActivePointId, mode);
     };
 
     audio.addEventListener("timeupdate", onTimeUpdate);
@@ -863,29 +968,30 @@ export default function Explanation({
     audio.addEventListener("error", onError);
     audio.addEventListener("ended", onEnded);
 
-    const preparationKey = `${videoId}::${mode}::${effectiveActivePointId}`;
-    const shouldAutoPlayPrepared =
-      autoPlayPreparationKeyRef.current === preparationKey &&
-      pauseOwnerRef.current === "intervention";
-    // Preserve Library auto-play and automatically play explanations for
-    // intervention-owned pauses once their prepared audio becomes available.
-    if (autoPlay || shouldAutoPlayPrepared) {
-      autoPlayPreparationKeyRef.current = null;
-      audio
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch(() => {});
-    }
 
     return () => {
       audio.pause();
+      if (!API_MOCK_MODE && audioUrl.startsWith("blob:")) URL.revokeObjectURL?.(audioUrl);
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("error", onError);
       audio.removeEventListener("ended", onEnded);
       audioRef.current = null;
     };
-  }, [audioUrl, autoPlay, effectiveActivePointId, mode, videoId]);
+  }, [audioUrl, autoPlay, effectiveActivePointId, mode, videoId, readOnly]);
+
+  const libraryListeningStarted = useRef(false);
+  useEffect(() => {
+    if (!autoPlay || libraryListeningStarted.current || !audioUrl || !libraryAutoPlayAllowedRef.current || helpOpenRef.current) return;
+    const point = allPoints.find((p) => p.id === effectiveActivePointId);
+    if (!point) return;
+    libraryListeningStarted.current = true;
+    if (readOnly) {
+      playerRef.current?.pauseVideo?.();
+      pauseOwnerRef.current = "user";
+      audioRef.current?.play().then(() => { setPauseOwner("user"); setIsPlaying(true); }).catch(() => setAudioError("Press Listen to play this saved explanation."));
+    } else conversationRef.current.requestListen(point, mode);
+  }, [autoPlay, audioUrl, effectiveActivePointId, mode, allPoints, readOnly]);
 
   // ---- Actions -------------------------------------------------------------
 
@@ -906,13 +1012,7 @@ export default function Explanation({
     }
     setPauseOwner("user");
     setActivePointId(id);
-    if (point) {
-      const idx = allPoints.findIndex((p) => p.id === id);
-      announce(
-        `Moment ${idx + 1} of ${allPoints.length}, at ${point.timestamp}. ${capitalize(point.category)}: ${point.title}.${isLecturePlaying ? " Video paused." : ""} The explanation is below.`,
-      );
-      focusExplanationStart();
-    }
+    if (point) conversationRef.current.manual(point);
   };
 
   // The learner's own Play / Pause / Resume control for the lecture (the
@@ -941,18 +1041,12 @@ export default function Explanation({
   // the pause. If Synapse's explanation audio is still playing, stop it
   // first so it never overlaps the lecture audio once the video resumes.
   const handleResumeVideo = () => {
-    // Recording a voice note: the lecture stays paused (it would be recorded).
     if (voiceControlRef.current?.lectureStarted()) return;
-    if (pauseOwner === "intervention" && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    }
-    autoPlayPreparationKeyRef.current = null;
-    setPauseOwner(null);
-    playerRef.current?.playVideo?.();
+    conversationRef.current.resume();
   };
 
   const handleRetryPreparation = async () => {
+    if (readOnly) { announce("This view uses saved content. Start processing from Home to prepare another version."); return; }
     if (!effectiveActivePointId || retryingPointId) return;
     setRetryingPointId(effectiveActivePointId);
     setPreparationError(null);
@@ -999,10 +1093,15 @@ export default function Explanation({
 
   const handleSkipExplanation = () => {
     announce("Explanation skipped. Resuming the lecture.");
-    handleResumeVideo();
+    conversationRef.current.skip();
   };
 
   const togglePlay = () => {
+    if (conversationRef.current.question?.choices.includes("listen")) {
+      conversationRef.current.answer("listen");
+      return;
+    }
+    if (conversationRef.current.isBlocked() && conversationRef.current.question) return;
     const audio = audioRef.current;
     if (!audio) return;
     if (isPlaying) {
@@ -1013,10 +1112,7 @@ export default function Explanation({
       if (voiceControlRef.current?.lectureStarted()) return;
       if (audioDuration > 0 && currentTime >= audioDuration)
         audio.currentTime = 0;
-      audio
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch(() => {});
+      conversationRef.current.requestListen(activePoint, mode);
     }
   };
 
@@ -1043,7 +1139,23 @@ export default function Explanation({
     changeRate(next);
   };
 
-  const handleBookmark = () => {
+  const handleBookmark = async () => {
+    if (!API_MOCK_MODE) {
+      if (bookmarkBusy.current) return;
+      if (!savedCurrent || savedCurrent.pointId !== effectiveActivePointId || normalMode(savedCurrent.mode) !== normalMode(mode)) {
+        announce("Wait for this explanation to finish saving, then try Bookmark again.");
+        return;
+      }
+      bookmarkBusy.current = true;
+      try {
+        await bookmarkSaved(savedCurrent.id, !bookmarked);
+        bookmarkStates.current.set(savedCurrent.id, !bookmarked);
+        setBookmarked(!bookmarked);
+        announce(bookmarked ? "Bookmark removed." : "Explanation bookmarked.");
+      } catch (error) { setStorageError(error.message); announce(error.message); }
+      finally { bookmarkBusy.current = false; }
+      return;
+    }
     const id = `${videoId}-${effectiveActivePointId}`;
     if (bookmarked) {
       removeBookmark(id);
@@ -1067,7 +1179,6 @@ export default function Explanation({
           paragraphs: explanation.paragraphs || [],
           keyInsight: explanation.keyInsight,
         },
-        savedAt: Date.now(),
       });
       setBookmarked(true);
     }
@@ -1176,8 +1287,81 @@ export default function Explanation({
     audioRef.current?.pause();
     setIsPlaying(false);
     playerRef.current?.pauseVideo?.();
+    pauseOwnerRef.current = "user";
     setPauseOwner("user");
   };
+
+  // ---- Help -----------------------------------------------------------------
+  // App's Help dialog is a modal over this screen: this screen stays mounted, so the player and the
+  // processing job are untouched. App calls beforeHelp() first (it may refuse) and afterHelp() when
+  // the dialog closes.
+  //
+  //  - Refused while a voice note is being prepared or recorded (the microphone is in use).
+  //  - helpOpenRef is set BEFORE any media is touched, so the three guards are already in force.
+  //  - A playing voice note is stopped. If the lecture or the explanation was really playing, both are
+  //    paused through pauseLectureAudio() and the learner owns the pause from then on. A play() that has
+  //    not resolved yet counts as playing (an element's `paused` is already false from the moment play()
+  //    is called), and pausing it cancels it. If nothing was playing nothing else changes (an
+  //    intervention pause stays an intervention pause).
+  //  - The returned notice is shown in the dialog and read as its description. This screen is inert
+  //    while Help is open, so announce() from here would not be heard.
+  //  - Closing NEVER resumes anything: afterHelp() only clears the hold and, if Help had paused or
+  //    stopped something, announces that it is still so.
+  const beforeHelp = () => {
+    const voice = voiceControlRef.current?.beforeHelp?.() ?? { blocked: false, stoppedNote: false };
+    if (voice.blocked) {
+      announce(HELP_BLOCKED_RECORDING);
+      return { blocked: true };
+    }
+    helpOpenRef.current = true;
+    libraryAutoPlayAllowedRef.current = false;
+    autoPlayPreparationKeyRef.current = null;
+    const playing = window.YT?.PlayerState?.PLAYING ?? 1;
+    const buffering = window.YT?.PlayerState?.BUFFERING ?? 3;
+    const videoState = playerRef.current?.getPlayerState?.();
+    const videoActive = videoState === playing || videoState === buffering;
+    const audioActive = isPlaying || audioRef.current?.paused === false;
+    let paused = null;
+    if (videoActive || audioActive) {
+      pauseLectureAudio();
+      paused = audioActive ? "both" : "lecture";
+    }
+    conversationRef.current.holdPlayback();
+    const did = { paused, stoppedNote: Boolean(voice.stoppedNote) };
+    helpDidRef.current = did;
+    return { blocked: false, notice: helpOpenNotice(did) };
+  };
+  // Hides the card. Focus moves to the currently selected Presentation mode button BEFORE the card
+  // goes away, so it is never lost; nothing is read out except the one short polite message.
+  const dismissGuideCard = () => {
+    dismissGuide();
+    modeButtonRefs.current[presentationMode]?.focus();
+    setGuideVisible(false);
+    announce(GUIDE_DISMISSED);
+  };
+
+  const afterHelp = () => {
+    helpOpenRef.current = false;
+    const message = helpClosedNotice(helpDidRef.current);
+    helpDidRef.current = { paused: null, stoppedNote: false };
+    if (message) announce(message);
+  };
+  // Re-pointed every render so the guard registered once always reaches the current state.
+  const helpHandlersRef = useRef({});
+  useEffect(() => {
+    helpHandlersRef.current = { beforeHelp, afterHelp };
+  });
+  useEffect(() => {
+    if (!registerHelpGuard) return undefined;
+    const unregister = registerHelpGuard({
+      beforeHelp: () => helpHandlersRef.current.beforeHelp(),
+      afterHelp: () => helpHandlersRef.current.afterHelp(),
+    });
+    return () => {
+      helpOpenRef.current = false;
+      unregister();
+    };
+  }, [registerHelpGuard]);
 
   // Explanation remains the sole owner of both media players and pause
   // ownership. Voice Control can only snapshot, pause and restore them through
@@ -1190,9 +1374,15 @@ export default function Explanation({
         ? (audioRef.current.paused ? "paused" : "playing")
         : "none",
       pauseOwner: pauseOwnerRef.current,
+      questionId: conversationRef.current.questionId(),
+      videoId,
+      currentMomentRef: effectiveActivePointId,
+      lectureSeconds: playerRef.current?.getCurrentTime?.(),
     }),
-    pause: pauseLectureAudio,
+    pause: () => { pauseLectureAudio(); voiceControlRef.current?.stopPlayback?.(); },
     restore: ({ lecture, explanation: restoreExplanation, pauseOwner: owner }) => {
+      if (conversationRef.current.question || conversationRef.current.waiting) return;
+      if (lecture && conversationRef.current.isBlocked()) return;
       setPauseOwner(owner);
       if (restoreExplanation) {
         audioRef.current
@@ -1202,7 +1392,7 @@ export default function Explanation({
       }
       if (lecture) playerRef.current?.playVideo?.();
     },
-    isNoteBusy: () => voiceControlRef.current?.isBusy?.() === true,
+    isNoteBusy: () => voiceControlRef.current?.isVoiceBlocked?.() ?? voiceControlRef.current?.isBusy?.() === true,
     stopNote: () => {
       if (voiceControlRef.current?.isRecording?.() !== true) return false;
       voiceControlRef.current.toggle();
@@ -1276,7 +1466,7 @@ export default function Explanation({
   // nameless entry to the Library, so wait for the real point.
   const hasPointDetails = allPoints.some((p) => p.id === effectiveActivePointId);
   useEffect(() => {
-    if (!explanation || !hasPointDetails) return;
+    if (!API_MOCK_MODE || !explanation || !hasPointDetails) return;
     saveToLibrary({
       id: `${videoId}-${effectiveActivePointId}`,
       pointId: effectiveActivePointId,
@@ -1291,7 +1481,6 @@ export default function Explanation({
       timestamp: activePoint.timestamp,
       mode,
       explanation,
-      savedAt: Date.now(),
     });
   }, [
     explanation,
@@ -1301,6 +1490,7 @@ export default function Explanation({
     videoAuthor,
     videoDuration,
     videoThumbnail,
+    activePoint.category, activePoint.timestamp, activePoint.title, effectiveActivePointId, jobId, mode, videoId,
   ]); // fires when explanation + real point details are both ready
 
   useEffect(() => {
@@ -1321,7 +1511,7 @@ export default function Explanation({
   const audioLabel = isPlaying
     ? "Playing · Pause"
     : hasPlayedCurrent
-      ? "Played automatically · Replay"
+      ? "Explanation heard · Replay"
       : "Listen";
   // Once heard and not currently playing, this is a secondary/replay
   // control rather than the primary way to hear the explanation.
@@ -1387,6 +1577,12 @@ export default function Explanation({
   // shortcuts; they do not introduce a second playback or navigation state.
   useVoiceActions(
     {
+      answer_explanation: ({ choice }) => conversationRef.current.answer(choice),
+      request_explanation: ({ depth = "standard", requestContext = {} } = {}) => {
+        if (!requestSessionId && !readOnly) throw new Error("Connect this lecture session before requesting an explanation.");
+        conversationRef.current.requestCurrent(depth, requestContext);
+      },
+      ...(readOnly ? { retry_saved_load: () => { setStorageError(null); setSavedLoadVersion((value) => value + 1); } } : {}),
       play_lecture: () => handleResumeVideo(),
       pause_lecture: () => pauseLectureAudio(),
       seek_lecture: ({ direction, seconds }) => {
@@ -1399,7 +1595,9 @@ export default function Explanation({
         );
       },
       play_explanation: () => {
-        explanationAudio().play().then(() => setIsPlaying(true)).catch(() => {});
+        const current = conversationRef.current;
+        if (current.question) { current.answer(current.question.choices.includes("listen") ? "listen" : "replay"); return; }
+        current.requestListen(activePoint, mode);
       },
       pause_explanation: () => {
         explanationAudio().pause();
@@ -1408,7 +1606,7 @@ export default function Explanation({
       replay_explanation: () => {
         const audio = explanationAudio();
         audio.currentTime = 0;
-        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+        conversationRef.current.requestListen(activePoint, mode);
       },
       next_moment: () => (
         nextPoint
@@ -1436,6 +1634,11 @@ export default function Explanation({
       open_timeline: () => onOpenTimeline(effectiveActivePointId),
       skip_explanation: () => handleSkipExplanation(),
       retry_explanation: () => {
+        if (!readOnly && !requestSessionId && onReconnectSession) return onReconnectSession();
+        if (conversationRef.current.question?.choices.includes("retry")) {
+          conversationRef.current.answer("retry");
+          return;
+        }
         if (preparationUiKind === "failed") handleRetryPreparation();
         else handleCheckPreparationAgain();
       },
@@ -1447,6 +1650,7 @@ export default function Explanation({
       ...(onStartPracticeRaw ? { start_practice: () => onStartPractice() } : {}),
     },
     () => ({
+      ...conversationRef.current.context(),
       videoId,
       currentMomentRef: effectiveActivePointId,
       presentationMode,
@@ -1493,9 +1697,11 @@ export default function Explanation({
   // after every render.
   const shortcutsRef = useRef({});
   useEffect(() => {
+    // Keyed by the action ids in lib/shortcuts.js (the table that also drives the on-page list, the
+    // spoken list and Help). A key with no action here, or an action with no key there, fails a test.
     shortcutsRef.current = {
-      KeyP: handleLectureToggle,
-      KeyL: () => {
+      playPause: handleLectureToggle,
+      listen: () => {
         if (!audioRef.current) {
           announce("Explanation audio isn't ready yet.");
           return;
@@ -1507,18 +1713,18 @@ export default function Explanation({
         }
         togglePlay();
       },
-      KeyN: () =>
+      next: () =>
         nextPoint
           ? selectPointManually(nextPoint.id)
           : announce("This is the last moment."),
-      KeyB: () =>
+      previous: () =>
         prevPoint
           ? selectPointManually(prevPoint.id)
           : announce("This is the first moment."),
-      KeyR: () => explanationHeadingRef.current?.focus(),
-      Period: () => stepRate(1),
-      Comma: () => stepRate(-1),
-      KeyM: () => {
+      read: () => explanationHeadingRef.current?.focus(),
+      faster: () => stepRate(1),
+      slower: () => stepRate(-1),
+      voiceNote: () => {
         if (voiceAudio.isTurnActive()) return;
         if (!voiceControlRef.current) {
           announce("Voice notes aren't ready yet.");
@@ -1526,11 +1732,12 @@ export default function Explanation({
         }
         voiceControlRef.current.toggle();
       },
-      KeyK: () => announce(SHORTCUTS_SPOKEN),
+      hearShortcuts: () => announce(LECTURE_SHORTCUTS_SPOKEN),
     };
   });
   useEffect(() => {
     const onKeyDown = (e) => {
+      if (helpOpenRef.current) return;
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const t = e.target;
       if (t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text"))) return;
@@ -1540,7 +1747,8 @@ export default function Explanation({
         e.code ||
         ({ ".": "Period", ",": "Comma" }[e.key] ??
           (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : ""));
-      const action = shortcutsRef.current[code];
+      const actionId = lectureActionForCode(code);
+      const action = actionId && shortcutsRef.current[actionId];
       if (!action) return;
       e.preventDefault();
       action();
@@ -1550,6 +1758,36 @@ export default function Explanation({
   }, []);
 
   // ---- Render --------------------------------------------------------------
+
+  // The "How this lecture works" card. It is ONE element, rendered in exactly one of two places below:
+  // in Accessibility mode where it always was (right after the moment's subtitle, so it is the first
+  // thing after the heading), and in Study mode after the video, so it does not push the video down.
+  const showGuideCard = guideVisible && !isProcessing && !processingError && allPoints.length > 0;
+  const guideCard = showGuideCard ? (
+    <section
+      aria-labelledby="guide-heading"
+      className="mb-6 px-4 py-4 bg-surface border border-border-subtle rounded-radius-md"
+    >
+      <h2 id="guide-heading" className="text-[17px] font-semibold text-text-primary mb-2">
+        {GUIDE_TITLE}
+      </h2>
+      <ol className="list-decimal pl-5 space-y-1 text-[14px] text-text-secondary">
+        {getGuideSteps(presentationMode).map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={dismissGuideCard} className="ds-btn-primary">
+          {GUIDE_GOT_IT}
+        </button>
+        {onOpenHelp && (
+          <button type="button" onClick={onOpenHelp} className="ds-btn-secondary">
+            {GUIDE_OPEN_HELP}
+          </button>
+        )}
+      </div>
+    </section>
+  ) : null;
 
   return (
     <div className="flex h-full w-full bg-background font-sans overflow-hidden">
@@ -1570,6 +1808,22 @@ export default function Explanation({
           className="flex-1 overflow-y-auto outline-none"
         >
           <div className="max-w-[720px] px-14 py-10">
+            {storageError && <div className="mb-4"><p role="status">{storageError}</p>
+              {readOnly && <button className="ds-btn-secondary" onClick={() => { setStorageError(null); setSavedLoadVersion((value) => value + 1); }}>Retry saved content</button>}
+            </div>}
+            {(requestSessionId || readOnly) && <button type="button" className="ds-btn-secondary mb-4"
+              onClick={() => conversation.requestCurrent("standard")}>Explain this part</button>}
+            {conversation.question && (
+              <section aria-labelledby="explanation-question-heading" className="mb-6 p-4 bg-surface border border-border-subtle rounded-radius-md">
+                <h2 id="explanation-question-heading" ref={conversationHeadingRef} tabIndex={-1} className="text-[18px] font-semibold focus-ring">Explanation question</h2>
+                <p className="my-3">{conversation.question.prompt}</p>
+                <p className="text-[14px] text-text-secondary mb-3">Press Alt+T, answer in English after the tone, then press Alt+T again. You can also use these buttons.</p>
+                <div className="flex flex-wrap gap-2">
+                  {conversation.question.choices.map((choice) => <button key={choice} type="button" className="ds-btn-secondary" onClick={() => conversation.answer(choice, conversation.question.id)}>{({yes:"Yes, continue",no:"Choose another version",finish:"Finish review",next:"Next explanation",later:"Later, continue",skip:"Skip and resume",resume:"Resume lecture",wait:"Wait here"})[choice] || choice[0].toUpperCase() + choice.slice(1)}</button>)}
+                </div>
+              </section>
+            )}
+            {conversation.waiting && <section aria-label="Waiting for explanation" className="mb-4 p-4 border border-border-subtle"><p>Preparing {conversation.waiting.depth} explanation. The lecture is paused.</p><button type="button" className="ds-btn-secondary" onClick={() => conversation.resume()}>Resume and notify me</button></section>}
             {/* Inline processing status — replaces the old full-screen Processing route */}
             {(isProcessing || processingError || explanationsPreparing ||
               processingStatus?.status === "cancelled") && (
@@ -1762,6 +2016,8 @@ export default function Explanation({
                   : "Your lecture is being prepared — the first explanation will appear here shortly."}
             </p>
 
+            {presentationMode === "accessibility" && guideCard}
+
             {preparationUiKind !== "ready" && (
               <section
                 aria-label="Explanation preparation"
@@ -1778,7 +2034,7 @@ export default function Explanation({
                     <button
                       type="button"
                       onClick={handleRetryPreparation}
-                      disabled={retryingPointId === effectiveActivePointId || preparationError?.kind === "exhausted"}
+                      disabled={retryingPointId === effectiveActivePointId || preparationError?.kind === "exhausted" || activePreparation?.retryable === false}
                       className="ds-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {retryingPointId === effectiveActivePointId ? "Retrying…" : "Retry explanation"}
@@ -1825,6 +2081,7 @@ export default function Explanation({
             >
               <button
                 type="button"
+                ref={(el) => (modeButtonRefs.current.accessibility = el)}
                 aria-pressed={presentationMode === "accessibility"}
                 onClick={() => switchPresentationMode("accessibility")}
                 className={
@@ -1838,6 +2095,7 @@ export default function Explanation({
               </button>
               <button
                 type="button"
+                ref={(el) => (modeButtonRefs.current.study = el)}
                 aria-pressed={presentationMode === "study"}
                 onClick={() => switchPresentationMode("study")}
                 className={
@@ -1939,6 +2197,9 @@ export default function Explanation({
                 </div>
               )}
             </div>
+
+            {/* Study mode: the guide card sits here, after the video and before the tabs. */}
+            {presentationMode === "study" && guideCard}
 
             {/* Visual View / Structured View tabs — Study Mode only.
               Accessibility Mode has no visual viewport to switch between
@@ -2244,12 +2505,13 @@ export default function Explanation({
                 {/* Personal voice notes about this lecture (see VoiceNotes.jsx).
                 Recording pauses the lecture and TTS and never resumes them. */}
                 <VoiceNotes
+                onOpenSaved={(item) => leaveScreen(() => onOpenSaved?.(item))}
                   videoId={videoId}
                   jobId={jobId}
                   videoTitle={videoTitle}
                   getLectureSeconds={() => playerRef.current?.getCurrentTime?.()}
                   getPointId={() => (pauseOwner !== null ? effectiveActivePointId : null)}
-                  pauseLectureAudio={pauseLectureAudio}
+                  pauseLectureAudio={() => { pauseLectureAudio(); conversationRef.current.holdPlayback(); }}
                   announce={announce}
                   onGoToTime={handleAskSeek}
                   controlRef={voiceControlRef}
@@ -2517,11 +2779,11 @@ export default function Explanation({
                 Keyboard shortcuts
               </h2>
               <ul className="space-y-1 text-[14px] text-text-secondary">
-                {SHORTCUTS.map(([keys, what]) => (
-                  <li key={keys}>
-                    <span className="font-mono text-text-primary">{keys}</span>
+                {LECTURE_SHORTCUT_ROWS.map((row) => (
+                  <li key={rowKeys(row)}>
+                    <span className="font-mono text-text-primary">{rowKeys(row)}</span>
                     {" — "}
-                    {what}
+                    {row.description}
                   </li>
                 ))}
               </ul>

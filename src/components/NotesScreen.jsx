@@ -8,8 +8,11 @@ import VoiceNoteList from "./VoiceNoteList";
 import { useNotePlayer } from "../hooks/useNotePlayer.js";
 import { useAnnouncer } from "../hooks/useAnnouncer.js";
 import { formatClock } from "../hooks/useVoiceRecorder.js";
-import { listAllNotes as defaultListAll } from "../lib/notesStore.js";
+import { listAllNotes as defaultListAll } from "../lib/backendNotes.js";
 import { groupByLecture } from "../lib/voiceNoteText.js";
+import { helpClosedNotice, helpOpenNotice } from "../lib/onboardingText.js";
+import { useVoiceAudioPort } from "../voice/voiceAudio";
+import PersonalImport from "./PersonalImport";
 import { useVoiceActions } from "../voice/voiceActions";
 
 export default function NotesScreen({
@@ -18,6 +21,7 @@ export default function NotesScreen({
   listAll = defaultListAll,
   deleteNote,
   playerOptions = {},
+  registerHelpGuard = null,
 }) {
   const [notes, setNotes] = useState([]);
   const [load, setLoad] = useState({ state: "loading", message: "" });
@@ -48,28 +52,40 @@ export default function NotesScreen({
   useEffect(() => { void refresh(); }, [refresh]);
 
   const player = useNotePlayer({ announce, ...playerOptions });
+  useVoiceActions({ retry_saved_load: refresh });
+  useVoiceAudioPort({
+    getSnapshot: () => ({ lecture: "paused", explanation: player.playingId ? "playing" : "none", pauseOwner: "user" }),
+    pause: () => player.stop(),
+    restore: () => {},
+  });
+
+  const helpLatest = useRef({});
+  useEffect(() => {
+    helpLatest.current = { playingId: player.playingId, stop: player.stop, announce };
+  });
+  const noteStoppedForHelp = useRef(false);
+  useEffect(() => {
+    if (!registerHelpGuard) return undefined;
+    return registerHelpGuard({
+      beforeHelp: () => {
+        const { playingId, stop } = helpLatest.current;
+        const stoppedNote = Boolean(playingId);
+        if (stoppedNote) stop();
+        noteStoppedForHelp.current = stoppedNote;
+        return { blocked: false, notice: helpOpenNotice({ stoppedNote }) };
+      },
+      afterHelp: () => {
+        const message = helpClosedNotice({ stoppedNote: noteStoppedForHelp.current });
+        noteStoppedForHelp.current = false;
+        if (message) helpLatest.current.announce(message);
+      },
+    });
+  }, [registerHelpGuard]);
   const groups = useMemo(() => groupByLecture(notes), [notes]);
 
   const listed = useMemo(
     () => groups.flatMap((group) => group.notes.map((note) => ({ ...note, lectureLabel: group.title }))),
     [groups],
-  );
-  useVoiceActions(
-    {
-      open_item: ({ index }) => {
-        const note = listed[index - 1];
-        if (!note) throw new Error("no such note");
-        onOpenNote(note);
-      },
-    },
-    () => ({
-      items: listed.map((note, index) => ({
-        ref: String(note.id),
-        kind: "note",
-        label: note.lectureLabel || "Voice note",
-        position: index + 1,
-      })),
-    }),
   );
 
   return (
@@ -89,6 +105,7 @@ export default function NotesScreen({
             Your voice notes.
           </h1>
           <div role="status" aria-live="polite" className="sr-only">{message}</div>
+          <PersonalImport onImported={refresh} onStatus={announce} />
 
           {load.state === "loading" && <p className="text-[15px] text-text-secondary">Loading your voice notes…</p>}
 
@@ -104,20 +121,13 @@ export default function NotesScreen({
               <p className="text-[15px] text-text-secondary mb-10">
                 {notes.length === 0
                   ? "Nothing recorded yet. Open a lecture and press Alt+M to record a note."
-                  : `${notes.length} voice note${notes.length === 1 ? "" : "s"} in ${groups.length} lecture${groups.length === 1 ? "" : "s"}. They are stored on this computer only.`}
+                  : `${notes.length} voice note${notes.length === 1 ? "" : "s"} in ${groups.length} lecture${groups.length === 1 ? "" : "s"}. They are stored on this computer only, in Synapse backend storage.`}
               </p>
 
-              {groups.map((group) => (
-                <section key={group.videoId} aria-labelledby={`vn-group-${group.videoId}`} className="mb-10">
-                  <h2
-                    id={`vn-group-${group.videoId}`}
-                    className="text-[18px] font-semibold text-text-primary mb-3"
-                  >
-                    {group.title}
-                  </h2>
+                <section aria-label="Recordings grouped by lecture" className="mb-10">
                   <VoiceNoteList
-                    idPrefix={`vn-${group.videoId}`}
-                    notes={group.notes}
+                    idPrefix="vn-global"
+                    notes={listed}
                     totalCount={notes.length}
                     player={player}
                     announce={announce}
@@ -130,7 +140,6 @@ export default function NotesScreen({
                     }}
                   />
                 </section>
-              ))}
             </>
           )}
         </div>

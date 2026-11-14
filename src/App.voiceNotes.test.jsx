@@ -9,7 +9,7 @@ import { makeNote } from "./test/recorderFakes.js";
 
 const h = vi.hoisted(() => ({ explanationProps: null }));
 
-vi.mock("./lib/notesStore.js", () => ({
+vi.mock("./lib/backendNotes.js", () => ({
   listAllNotes: vi.fn(),
   listNotesForVideo: vi.fn(async () => []),
   deleteNote: vi.fn(async () => true),
@@ -25,7 +25,7 @@ vi.mock("./components/Explanation", () => ({
   },
 }));
 
-import { listAllNotes } from "./lib/notesStore.js";
+import { listAllNotes } from "./lib/backendNotes.js";
 
 beforeEach(() => {
   h.explanationProps = null;
@@ -91,13 +91,13 @@ describe("Voice notes in the app", () => {
     render(<App />);
     // Home -> bookmarks -> (nothing to open) keeps working; the Explanation prop default is null.
     fireEvent.click(screen.getAllByRole("button", { name: /^Bookmarks/ })[0]);
-    await screen.findByRole("heading", { level: 1, name: "Your saved explanations." });
+    await screen.findByRole("heading", { level: 1, name: "Bookmarks" });
     expect(h.explanationProps).toBeNull();
   });
 
   it("the sidebar on the notes screen can leave it", async () => {
     await openNotesScreen();
     fireEvent.click(screen.getByRole("button", { name: /^Bookmarks/ }));
-    await screen.findByRole("heading", { level: 1, name: "Your saved explanations." });
+    await screen.findByRole("heading", { level: 1, name: "Bookmarks" });
   });
 });

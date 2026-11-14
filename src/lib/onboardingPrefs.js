@@ -1,5 +1,6 @@
 export const ONBOARDING_COMPLETED_KEY = "synapse_onboarding_completed";
 export const PRESENTATION_MODE_KEY = "synapse_presentation_mode";
+export const GUIDE_DISMISSED_KEY = "synapse_guide_dismissed";
 
 const memory = new Map();
 
@@ -58,5 +59,15 @@ export function needsWelcome() {
 export function completeOnboarding() {
   const persisted = write(ONBOARDING_COMPLETED_KEY, "1");
   if (!persisted) memory.set(ONBOARDING_COMPLETED_KEY, "1");
+  return { persisted };
+}
+
+export function isGuideDismissed() {
+  return isSet(GUIDE_DISMISSED_KEY);
+}
+
+export function dismissGuide() {
+  const persisted = write(GUIDE_DISMISSED_KEY, "1");
+  if (!persisted) memory.set(GUIDE_DISMISSED_KEY, "1");
   return { persisted };
 }

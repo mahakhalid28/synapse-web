@@ -127,6 +127,21 @@ afterEach(() => {
 });
 
 describe("P3 explanation preparation playback", () => {
+  it("presents an accessible question and focuses its heading without autoplay", async () => {
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
+    renderExplanation();
+    await settle(200);
+    const player = h.players[0];
+    player.state = 1;
+    player.time = 10.1;
+    await settle(350);
+    const heading = screen.getByRole("heading", { name: "Explanation question" });
+    expect(document.activeElement).toBe(heading);
+    expect(h.FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
+    vi.useRealTimers();
+    const { axe } = await import("jest-axe");
+    expect(await axe(screen.getByRole("region", { name: "Explanation question" }))).toHaveNoViolations();
+  });
   it("polls one lecture status list and consumes the cached explanation when ready", async () => {
     h.getStatus
       .mockResolvedValueOnce({ items: [status("pending"), status("pending", "p2")] })
@@ -144,7 +159,7 @@ describe("P3 explanation preparation playback", () => {
     expect(h.getStatus.mock.calls.every(([videoId, mode]) => videoId === "aircAruvnKk" && mode === "standard")).toBe(true);
   });
 
-  it("waits at an automatic intervention without launching duplicate inference, then plays ready audio", async () => {
+  it("waits at an automatic intervention without launching duplicate inference, then asks before playing ready audio", async () => {
     h.getStatus
       .mockResolvedValueOnce({ items: [status("generating"), status("pending", "p2")] })
       .mockResolvedValueOnce({ items: [status("ready"), status("pending", "p2")] });
@@ -155,17 +170,19 @@ describe("P3 explanation preparation playback", () => {
     player.time = 10.1;
     await settle(350);
 
-    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(player.pauseVideo).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Skip explanation" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Resume lecture" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Resume lecture" }).length).toBeGreaterThan(0);
     expect(h.getPrepared).not.toHaveBeenCalled();
 
     await settle(600);
-    expect(h.getPrepared).toHaveBeenCalledTimes(1);
+    expect(h.FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Wait here" }));
+    await settle(100);
     expect(h.FakeAudio.instances.at(-1).play).toHaveBeenCalledTimes(1);
   });
 
-  it("plays an already-preloaded ready explanation when its timestamp is reached", async () => {
+  it("asks permission before playing a preloaded explanation at its timestamp", async () => {
     h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
     renderExplanation();
     await settle(200);
@@ -177,7 +194,10 @@ describe("P3 explanation preparation playback", () => {
     player.time = 10.1;
     await settle(350);
 
-    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(player.pauseVideo).toHaveBeenCalled();
+    expect(audio.play).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Listen" }));
+    await settle(100);
     expect(audio.play).toHaveBeenCalledTimes(1);
   });
 

@@ -150,6 +150,7 @@ export function buildVoiceContext({
   lectureSeconds = null,
   items = [],
   availableActions = [],
+  explanationQuestion = null,
   pendingConfirmation = null,
   lastAction = null,
   languageHint = null,
@@ -181,6 +182,9 @@ export function buildVoiceContext({
   }
   if (typeof lectureSeconds === "number" && Number.isFinite(lectureSeconds) && lectureSeconds >= 0 && lectureSeconds <= 172_800) {
     context.lecture_seconds = lectureSeconds;
+  }
+  if (explanationQuestion?.id && Array.isArray(explanationQuestion.choices)) {
+    context.explanation_question = { id: clip(explanationQuestion.id, 120), choices: explanationQuestion.choices };
   }
   if (isKnownAction(pendingConfirmation)) context.pending_confirmation = pendingConfirmation;
   if (isKnownAction(lastAction)) context.last_action = lastAction;

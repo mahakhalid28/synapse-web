@@ -30,7 +30,7 @@ const LABELS = {
 
 const HINT = "Press Alt+T to start talking and again to stop, or hold the Space bar while this button is focused.";
 
-export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDeps, warmUp = warmUpVoice }) {
+export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDeps, warmUp = warmUpVoice, disabled = false, registerHelpInterruption = null }) {
   const { message, announce } = useAnnouncer();
   const registry = useVoiceActionsRegistry();
   const speaker = useMemo(() => createSpeaker({ announce, ...speakerDeps }), [announce, speakerDeps]);
@@ -44,7 +44,7 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
     warmUp();
   }, [warmUp]);
 
-  const { status, toggle, holdStart, holdEnd } = useVoiceTurn({
+  const { status, toggle, holdStart, holdEnd, interrupt } = useVoiceTurn({
     onUtterance: onUtterance ?? handleCommand,
     announce,
     deps,
@@ -52,7 +52,22 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
   });
 
   useEffect(() => {
+    if (!registerHelpInterruption) return undefined;
+    const control = {
+      interrupt: () => {
+        interrupt();
+        handleCommand.cancel();
+        speaker.stop();
+      },
+    };
+    return registerHelpInterruption(control);
+  });
+
+  useEffect(() => () => speaker.stop(), [speaker]);
+
+  useEffect(() => {
     const onKeyDown = (e) => {
+      if (disabled) return;
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       // e.code is empty for some assistive-technology key events, so fall back to the typed letter.
       const pressed = e.code || (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : "");
@@ -86,10 +101,12 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
     <>
       <button
         type="button"
-        onClick={toggle}
+        disabled={disabled}
+        onClick={() => { if (!disabled) toggle(); }}
         // Space is hold-to-talk when idle; if listening was already started (Alt+T), Space stops it. The
         // browser would also "click" on Space release, so both ends are intercepted.
         onKeyDown={(e) => {
+          if (disabled) return;
           if (e.key !== " " || e.altKey || e.ctrlKey || e.metaKey) return;
           e.preventDefault();
           if (e.repeat) return;
@@ -97,6 +114,7 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
           else toggle();
         }}
         onKeyUp={(e) => {
+          if (disabled) return;
           if (e.key !== " ") return;
           e.preventDefault();
           holdEnd();

@@ -17,8 +17,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import VoiceNoteList from "./VoiceNoteList";
 import { useVoiceRecorder, formatClock, RECORD_LIMIT_MS } from "../hooks/useVoiceRecorder.js";
 import { useNotePlayer } from "../hooks/useNotePlayer.js";
-import { listNotesForVideo as defaultListNotes } from "../lib/notesStore.js";
+import { listNotesForVideo as defaultListNotes } from "../lib/backendNotes.js";
 import { newestFirst } from "../lib/voiceNoteText.js";
+import { useVoiceActions } from "../voice/voiceActions";
 
 export default function VoiceNotes({
   videoId,
@@ -29,6 +30,7 @@ export default function VoiceNotes({
   pauseLectureAudio,
   announce,
   onGoToTime,
+  onOpenSaved,
   controlRef,
   // Test seams (the real store and browser APIs are used when omitted).
   listNotes = defaultListNotes,
@@ -88,6 +90,12 @@ export default function VoiceNotes({
   });
 
   const status = recorder.status;
+  useVoiceActions({
+    ...(status === "draft" || status === "save_failed" ? {
+      save_note_draft: () => saveDraft(),
+      discard_note_draft: () => discardDraft(),
+    } : {}),
+  }, () => ({ draftRef: recorder.getDraft()?.id || null }));
   const showPrompt = status === "draft" || status === "save_failed" || pendingLeave;
 
   // The unsaved-recording prompt takes focus when it appears.
@@ -107,8 +115,10 @@ export default function VoiceNotes({
     if (note && pendingLeaveRef.current) finishLeave();
   };
   const discardDraft = () => {
-    recorder.discardDraft();
-    if (pendingLeaveRef.current) finishLeave();
+    const finish = (discarded) => { if (discarded !== false && pendingLeaveRef.current) finishLeave(); };
+    const result = recorder.discardDraft();
+    if (result?.then) return result.then(finish);
+    finish(result);
   };
   const stayHere = () => {
     pendingLeaveRef.current = null;
@@ -136,6 +146,9 @@ export default function VoiceNotes({
       toggle: () => recorder.toggle(),
       isRecording: () => ["preparing", "recording"].includes(recorder.getStatus()),
       isBusy: () => ["preparing", "recording", "saving", "draft", "save_failed"].includes(recorder.getStatus()),
+      isVoiceBlocked: () => ["preparing", "recording", "saving"].includes(recorder.getStatus()),
+      stopPlayback: () => player.stop(),
+      isPlaying: () => Boolean(player.playingId),
       lectureStarted: () => {
         const current = recorder.getStatus();
         if (current === "preparing" || current === "recording") {
@@ -144,6 +157,13 @@ export default function VoiceNotes({
         }
         if (player.playingId) player.stop();
         return false;
+      },
+      beforeHelp: () => {
+        const current = recorder.getStatus();
+        if (current === "preparing" || current === "recording") return { blocked: true, stoppedNote: false };
+        const stoppedNote = Boolean(player.playingId);
+        if (stoppedNote) player.stop();
+        return { blocked: false, stoppedNote };
       },
       requestLeave,
     };
@@ -275,7 +295,7 @@ export default function VoiceNotes({
             announce={announce}
             deleteNote={deleteNote}
             openLabel={(note) => `Go to ${formatClock(note.lectureSeconds)} in lecture`}
-            onOpen={(note) => onGoToTime(note.lectureSeconds)}
+            onOpen={(note) => note.savedExplanation ? onOpenSaved?.(note.savedExplanation) : onGoToTime(note.lectureSeconds)}
             onRemoved={(id, wasLast) => {
               if (wasLast) focusHeadingWhenEmpty.current = true;
               setNotes((prev) => prev.filter((n) => n.id !== id));

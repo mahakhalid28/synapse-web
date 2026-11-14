@@ -6,6 +6,7 @@ import { useEffect } from "react";
 export default function useFocusShortcut(inputRef, letter = "s") {
   useEffect(() => {
     const onKeyDown = (e) => {
+      if (inputRef.current?.closest("[inert]")) return;
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const pressed = e.code ? e.code.replace(/^Key/, "").toLowerCase() : e.key?.toLowerCase();
       if (pressed !== letter) return;

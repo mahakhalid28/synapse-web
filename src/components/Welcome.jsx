@@ -11,6 +11,7 @@ import {
   WELCOME_CONTINUE,
   WELCOME_EXISTING_NOTE,
   WELCOME_GET_STARTED,
+  WELCOME_HELP,
   WELCOME_INTRO,
   WELCOME_MODE_DESCRIPTIONS,
   WELCOME_MODE_HEADING,
@@ -20,7 +21,7 @@ import {
   WELCOME_TITLE,
 } from "../lib/onboardingText";
 
-export default function Welcome({ onDone = () => {} }) {
+export default function Welcome({ onDone = () => {}, onOpenHelp = null }) {
   const [savedMode] = useState(getSavedPresentationMode);
   const [selected, setSelected] = useState(savedMode ?? "accessibility");
   const [saveFailed, setSaveFailed] = useState(false);
@@ -119,6 +120,11 @@ export default function Welcome({ onDone = () => {} }) {
             <button type="button" onClick={skip} className="ds-btn-secondary">
               {WELCOME_SKIP}
             </button>
+            {onOpenHelp && (
+              <button type="button" onClick={onOpenHelp} className="ds-btn-text">
+                {WELCOME_HELP}
+              </button>
+            )}
           </div>
         </div>
       </main>

@@ -1,3 +1,4 @@
+import { accountOwner, LOCAL_PROFILE_ID } from "./accountSession";
 // Local-only storage for Voice Notes (IndexedDB).
 //
 // Nothing here talks to the backend or any network service, and no audio ever
@@ -156,11 +157,11 @@ export function newNoteId() {
   return `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function openDatabase(factory) {
+function openDatabase(factory, dbName = DB_NAME) {
   return new Promise((resolve, reject) => {
     let request;
     try {
-      request = factory.open(DB_NAME, DB_VERSION);
+      request = factory.open(dbName, DB_VERSION);
     } catch (err) {
       reject(mapError(err, "Could not open the voice notes database."));
       return;
@@ -213,7 +214,7 @@ export function createNotesStore(options = {}) {
   function getDb() {
     if (!factory) return Promise.reject(UNAVAILABLE());
     if (!dbPromise) {
-      const p = openDatabase(factory).then((db) => {
+      const p = openDatabase(factory, options.dbName).then((db) => {
         const forget = () => { if (dbPromise === p) dbPromise = null; };
         db.onversionchange = () => { db.close(); forget(); };
         db.onclose = forget;
@@ -352,8 +353,15 @@ export function createNotesStore(options = {}) {
 /* ── Default instance used by the app (created on first use, so importing
    this module is safe where IndexedDB does not exist) ─────────────────────── */
 
-let defaultStore = null;
-const store = () => (defaultStore ??= createNotesStore());
+const accountStores = new Map();
+export function forOwner(ownerId = accountOwner()) {
+  if (!accountStores.has(ownerId)) {
+    accountStores.set(ownerId, createNotesStore({ dbName: ownerId === LOCAL_PROFILE_ID ? DB_NAME : `${DB_NAME}_${ownerId}` }));
+  }
+  return accountStores.get(ownerId);
+}
+export const bindAccount = () => forOwner();
+const store = () => forOwner();
 
 export const saveNote = (note, audio) => store().saveNote(note, audio);
 export const getNote = (id) => store().getNote(id);

@@ -11,13 +11,16 @@
 // microphone disappearing) HOLDS the audio as a draft for the learner to
 // save or discard; nothing is saved silently.
 //
-// Audio never leaves the device: it goes to notesStore (IndexedDB) only.
+// Recordings use backend files and database metadata on this computer;
+// IndexedDB retains account-scoped drafts and failed-upload recovery.
 //
 // The hook has no UI. Browser APIs are reached through `deps` so tests can
 // replace them; the defaults use the real ones.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { saveNote as defaultSaveNote, newNoteId as defaultNewNoteId } from "../lib/notesStore.js";
+import { saveNote as defaultSaveNote, newNoteId as defaultNewNoteId } from "../lib/backendNotes.js";
+import { holdDraft, discardStoredDraft } from "../lib/backendNotes.js";
+import { accountOwner, registerAccountGuard } from "../lib/accountSession";
 
 export const RECORD_LIMIT_MS = 5 * 60 * 1000; // product limit for one note
 export const LIMIT_WARNING_BEFORE_MS = 30 * 1000;
@@ -205,7 +208,7 @@ export function useVoiceRecorder(options) {
   useEffect(() => {
     latest.current = {
       videoId, jobId, videoTitle, getPointId, getLectureSeconds, pauseForRecording, announce, onSaved,
-      store: store || { saveNote: defaultSaveNote, newNoteId: defaultNewNoteId },
+      store: store || { saveNote: defaultSaveNote, newNoteId: defaultNewNoteId, holdDraft, discardStoredDraft },
       deps: { ...defaultDeps(), ...(deps || {}) },
     };
   });
@@ -268,6 +271,7 @@ export function useVoiceRecorder(options) {
     if (mounted.current) setError(null);
     try {
       const note = await st.saveNote({
+        ownerId: held.ownerId,
         id: held.id || (held.id = st.newNoteId()),
         videoId: vid, jobId: job, videoTitle: title, pointId: held.pointId,
         lectureSeconds: held.lectureSeconds, createdAt: held.createdAt, durationMs: held.durationMs,
@@ -316,6 +320,7 @@ export function useVoiceRecorder(options) {
       return;
     }
     const held = {
+      ownerId: s.ownerId,
       blob, durationMs, mimeType: type, lectureSeconds: s.lectureSeconds, pointId: s.pointId ?? pointOf(),
       createdAt: d.clock(), silentWarning: isSilent(signal) === true,
     };
@@ -323,6 +328,16 @@ export function useVoiceRecorder(options) {
       await persistDraft(held);
     } else {
       // The recording ended for a reason the learner did not choose: never save it silently.
+      const { store: st, videoId: vid, jobId: job, videoTitle: title } = latest.current;
+      if (st.holdDraft) {
+        held.id = st.newNoteId();
+        try {
+          await st.holdDraft({ id: held.id, videoId: vid, jobId: job, videoTitle: title,
+            ownerId: held.ownerId,
+            pointId: held.pointId, lectureSeconds: held.lectureSeconds, createdAt: held.createdAt,
+            durationMs: held.durationMs, mimeType: held.mimeType, label: "", silentWarning: held.silentWarning }, held.blob);
+        } catch { say("The draft is still in memory. Save or discard it before closing Synapse."); }
+      }
       setDraft(held);
       setStatus("draft");
       say(
@@ -384,6 +399,7 @@ export function useVoiceRecorder(options) {
     }
 
     const run = ++s.run;
+    s.ownerId = accountOwner();
     s.lectureSeconds = seconds;
     s.pointId = pointOf();
     s.chunks = [];
@@ -475,6 +491,22 @@ export function useVoiceRecorder(options) {
     return draftRef.current;
   }, [stop]);
 
+  useEffect(() => registerAccountGuard(async (external) => {
+    if (statusRef.current === "idle") return;
+    if (!external) throw new Error("Save or discard your recording before changing accounts.");
+    if (statusRef.current === "saving") throw new Error("Wait for the recording save to finish.");
+    const held = await stopForLeaving();
+    if (held) {
+      const { store: st, videoId: vid, jobId: job, videoTitle: title } = latest.current;
+      if (!st.holdDraft) throw new Error("Keep this window open to retain your recording.");
+      held.id ||= st.newNoteId();
+      // Ensure recovery is durable before another tab can dispose this recorder.
+      try { await st.holdDraft({ ...held, videoId: vid, jobId: job, videoTitle: title,
+        pointId: held.pointId, label: "" }, held.blob); }
+      catch (error) { if (error?.code !== "duplicate") throw error; }
+    }
+  }), [stopForLeaving]);
+
   const saveDraft = useCallback((label = "") => {
     if ((statusRef.current !== "draft" && statusRef.current !== "save_failed") || !draftRef.current) return Promise.resolve(null);
     return persistDraft(draftRef.current, label);
@@ -482,10 +514,19 @@ export function useVoiceRecorder(options) {
 
   const discardDraft = useCallback(() => {
     if (!draftRef.current) return;
-    setDraft(null);
-    if (mounted.current) setError(null);
-    setStatus("idle");
-    say("Recording discarded.");
+    const finish = () => {
+      setDraft(null);
+      if (mounted.current) setError(null);
+      setStatus("idle");
+      say("Recording discarded.");
+      return true;
+    };
+    if (draftRef.current.id && latest.current.store.discardStoredDraft) {
+      return latest.current.store.discardStoredDraft(draftRef.current.id).then(finish).catch(() => {
+        say("The local draft could not be discarded. Please try again."); return false;
+      });
+    }
+    return finish();
   }, [setDraft, setStatus, say]);
 
   /** The learner (or an auto-resume) started the lecture or TTS while recording: pause it again and say why. */

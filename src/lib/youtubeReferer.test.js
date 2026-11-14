@@ -140,13 +140,13 @@ describe("electron.cjs wiring", () => {
   });
 
   it("installs it before the packaged page is loaded", () => {
-    expect(source.indexOf("installYouTubeEmbedReferer(win")).toBeLessThan(source.indexOf("win.loadFile("));
+    expect(source.indexOf("installYouTubeEmbedReferer(win")).toBeLessThan(source.indexOf("win.loadURL(`${PACKAGED_ORIGIN}"));
   });
 
-  it("leaves the security settings and the permission policy wiring as they were", () => {
+  it("keeps isolation and permissions while enabling browser security and a limited legacy import bridge", () => {
     expect(source).toContain("contextIsolation: true");
-    expect(source).toContain("webSecurity: false"); // unchanged by this fix (still needed for file:// module scripts)
-    expect(source).not.toContain("preload");
+    expect(source).toContain("webSecurity: true"); // the packaged frontend now has a trusted loopback origin
+    expect(source).toContain("legacyBridge.cjs");
     expect(source).toContain("installPermissionPolicy(win.webContents.session, permissionPolicy");
   });
 });

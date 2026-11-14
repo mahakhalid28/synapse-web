@@ -496,8 +496,7 @@ export async function getInterventionPoints(jobId, videoId) {
     .filter((iv) => iv.content_type !== "non-educational")
     .map((iv) => ({
       id: iv.id,
-      category:
-        iv.content_type === "slide" ? "diagram" : (iv.content_type || "unknown"),
+      category: iv.content_type || "unknown",
       timestamp: secondsToMMSS(iv.timestamp),
       title: titleFromContext(iv.transcript_context, iv.content_type),
       // Not yet provided by the backend — see the contract-gap note above.
@@ -752,6 +751,7 @@ export class ExplanationPreparationError extends Error {
       exhausted: "This explanation could not be prepared after several attempts.",
       notRetryable: "This explanation is not currently eligible for retry.",
       network: "Can't reach the Synapse server to check explanation preparation.",
+      busy: "Another lecture is using the preparation worker. You can resume this lecture and try again later.",
     };
     super(messages[kind] || messages.unavailable);
     this.name = "ExplanationPreparationError";
@@ -775,6 +775,8 @@ function validatePreparationItem(item, malformed) {
       (typeof item.error_code !== "string" || !/^[a-z0-9_]{1,64}$/.test(item.error_code))) ||
     !Number.isInteger(item.attempt_count) ||
     item.attempt_count < 0
+    || (item.requested !== undefined && typeof item.requested !== "boolean")
+    || (item.retryable !== undefined && typeof item.retryable !== "boolean")
   ) {
     malformed();
   }
@@ -784,6 +786,8 @@ function validatePreparationItem(item, malformed) {
     status: item.status,
     error_code: item.error_code ?? null,
     attempt_count: item.attempt_count,
+    requested: item.requested ?? true,
+    ...(item.retryable === undefined ? {} : { retryable: item.retryable }),
   };
 }
 
@@ -821,6 +825,7 @@ async function preparationResponseError(response) {
     // The status code is enough to produce a safe user-facing error.
   }
   const code = details?.code;
+  if (response.status === 409 && code === "video_processing_busy") return new ExplanationPreparationError("busy", 409, details);
   if (response.status === 404) return new ExplanationPreparationError("notFound", 404);
   if (response.status === 409 && code === "retry_exhausted") {
     return new ExplanationPreparationError("exhausted", 409, details);
@@ -853,13 +858,35 @@ export async function getExplanationPreparationStatus(videoId, mode, { signal } 
   return validatePreparationStatus(data, videoId, backendMode);
 }
 
-export async function retryExplanationPreparation(videoId, interventionId, mode, { signal } = {}) {
+export function requestExplanationPreparation(videoId, interventionId, mode, options = {}) {
+  return submitExplanationPreparation(videoId, interventionId, mode, "request", options);
+}
+
+export async function cancelLectureExplanations(videoId, { signal } = {}) {
+  if (API_MOCK_MODE) return;
+  const response = await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/explanations/cancel`), {
+    method: "POST", signal, keepalive: true,
+  });
+  if (!response.ok) throw new Error("Unfinished lecture work could not be stopped. Try stopping it again.");
+}
+
+export async function openLectureExplanations(videoId, { signal } = {}) {
+  if (API_MOCK_MODE) return;
+  const response = await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/explanations/open`), { method: "POST", signal });
+  if (!response.ok) throw new Error("Background preparation could not be resumed. Try opening preparation again.");
+}
+
+export function retryExplanationPreparation(videoId, interventionId, mode, options = {}) {
+  return submitExplanationPreparation(videoId, interventionId, mode, "retry", options);
+}
+
+async function submitExplanationPreparation(videoId, interventionId, mode, operation, { signal } = {}) {
   const backendMode = toBackendExplanationMode(mode);
   let response;
   try {
     response = await fetch(
       apiUrl(
-        `/video/${encodeURIComponent(videoId)}/interventions/${encodeURIComponent(interventionId)}/explanations/retry?output_mode=${encodeURIComponent(backendMode)}`,
+        `/video/${encodeURIComponent(videoId)}/interventions/${encodeURIComponent(interventionId)}/explanations/${operation}?output_mode=${encodeURIComponent(backendMode)}`,
       ),
       { method: "POST", signal },
     );
@@ -950,12 +977,14 @@ async function hydrateExplanationAudio(data, { signal } = {}) {
       const audioRes = await fetch(audioUrl, { signal });
       if (audioRes.ok) {
         const blob = await audioRes.blob();
+        if (signal?.aborted) throw new DOMException("Audio request cancelled", "AbortError");
         audioBlobUrl = URL.createObjectURL(blob);
       } else {
         audioError = "Explanation audio is unavailable. You can still read the explanation.";
         console.warn("[Synapse] Audio file not served by backend:", audioRes.status);
       }
     } catch (error) {
+      if (error.name === "AbortError") throw error;
       audioError = "Explanation audio could not be loaded. You can still read the explanation.";
       console.warn("[Synapse] Could not fetch audio file:", error.message);
     }
@@ -1008,7 +1037,8 @@ export async function getPreparedExplanation(interventionId, mode, videoId, { si
     interventionId,
   );
   return {
-    explanation: { ...parsed, keyInsight: data.keyInsight ?? parsed.keyInsight },
+    explanation: { ...parsed, keyInsight: data.keyInsight ?? parsed.keyInsight,
+      sourceExplanationId: data.explanation_id, videoId, pointId: interventionId, mode: backendMode },
     audio: data,
   };
 }
@@ -1090,11 +1120,8 @@ function createMockAudioUrl() {
  * fabricated for a category where they wouldn't be meaningful — several
  * categories below (code, and one diagram) deliberately have neither, to
  * keep exercising the "omit the section" paths, not just the "show it"
- * ones. A slide's content_type is normalized to category "diagram" by the
- * real (non-mock) branch below (iv.content_type === "slide" ? "diagram" :
- * ...), so the slide example here uses "diagram" too — this table always
- * mirrors what the frontend will actually receive post-normalization, not
- * raw backend content_type values.
+ * ones. Backend category labels are preserved, including "slide".
+ * Mock categories follow the same vocabulary.
  */
 const MOCK_INTERVENTIONS = {
   p1: {
@@ -1197,15 +1224,10 @@ const MOCK_INTERVENTIONS = {
     keyInsight:
       "Gradient descent is just this one update rule, repeated thousands of times until the loss stops improving.",
   },
-  // A summary slide — content_type "slide" from the real backend is already
-  // normalized to category "diagram" below, so this mock entry does the
-  // same rather than inventing a "slide" category the pipeline never
-  // actually produces. Structured rows are a natural fit here since the
-  // slide itself is just a short bulleted list — no focusRegion, since no
-  // single bullet is more visually important than the others.
+  // A summary slide with structured rows and no single focus region.
   p6: {
     id: "p6",
-    category: "diagram",
+    category: "slide",
     timestamp: "8:20",
     title: "Summary slide: Newton's three laws",
     structured: {

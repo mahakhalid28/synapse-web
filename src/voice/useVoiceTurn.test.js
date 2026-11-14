@@ -619,6 +619,33 @@ describe("ending by itself", () => {
 });
 
 describe("hold to talk (Space on the button)", () => {
+  it("Help interrupts without restoring the pre-turn lecture and allows a new turn", async () => {
+    const env = setup({ port: makePort({ lecture: "playing" }) });
+    await startListening(env);
+    env.controller.interrupt();
+    expect(env.capture.cancel).toHaveBeenCalledTimes(1);
+    expect(env.port.restore).not.toHaveBeenCalled();
+    expect(env.registry.isTurnActive()).toBe(false);
+    await startListening(env);
+    env.controller.interrupt();
+    expect(env.deps.createCapture).toHaveBeenCalledTimes(2);
+  });
+
+  it("Help stops a pending quiet check so it cannot pause later user playback", async () => {
+    const env = setup({ port: makePort({ lecture: "playing" }, { stubborn: true }) });
+    let finishWait;
+    env.deps.wait.mockImplementationOnce(() => new Promise((resolve) => { finishWait = resolve; }));
+    const starting = env.controller.begin();
+    await vi.advanceTimersByTimeAsync(0);
+    env.controller.interrupt();
+    const calls = env.port.pause.mock.calls.length;
+    finishWait();
+    await starting;
+    expect(env.port.pause).toHaveBeenCalledTimes(calls);
+    expect(env.capture.open).not.toHaveBeenCalled();
+    expect(env.port.restore).not.toHaveBeenCalled();
+  });
+
   it("listens while held and handles the words on release", async () => {
     const env = setup({ port: makePort({ lecture: "playing" }) });
     await env.controller.holdStart();

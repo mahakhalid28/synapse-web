@@ -10,6 +10,7 @@ import {
   useVoiceRecorder, formatClock, formatDuration, measureSamples, isSilent, describeMicError,
   RECORD_LIMIT_MS, SETTLE_MS, MIN_RECORDING_MS, LIMIT_WARNING_BEFORE_MS,
 } from "./useVoiceRecorder.js";
+import { login } from "../lib/accountSession";
 
 /* ── Fakes ───────────────────────────────────────────────────────────────── */
 
@@ -99,6 +100,14 @@ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 /* ── Pure helpers ────────────────────────────────────────────────────────── */
 
 describe("helpers", () => {
+  it("blocks an account switch while a recording is active", async () => {
+    const env = makeEnv();
+    const hook = await beginRecording(env);
+    expect(hook.result.current.status).toBe("recording");
+    await expect(login("another-user", "password")).rejects.toThrow("Save or discard your recording");
+    expect(hook.result.current.status).toBe("recording");
+    hook.unmount();
+  });
   it("formatClock", () => {
     expect([formatClock(0), formatClock(9.9), formatClock(201.4), formatClock(3725), formatClock(-5), formatClock(NaN)])
       .toEqual(["0:00", "0:09", "3:21", "1:02:05", "0:00", "0:00"]);

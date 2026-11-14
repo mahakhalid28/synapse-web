@@ -22,7 +22,7 @@ const THEMES = [
   },
 ];
 
-export default function Navbar({ theme = "paper", onThemeChange = () => {}, leading = null }) {
+export default function Navbar({ theme = "paper", onThemeChange = () => {}, leading = null, onHelp = null, accountControls = null }) {
   const [open, setOpen] = useState(false);
   const panelRef        = useRef(null);
   const gearRef         = useRef(null);
@@ -45,10 +45,19 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {}, lead
   return (
     <header className="h-14 shrink-0 bg-surface border-b border-border-subtle flex items-center px-4 relative z-40 font-sans">
       {leading && <div className="ml-auto flex items-center">{leading}</div>}
+      {onHelp && (
+        <button
+          type="button"
+          onClick={(event) => { setOpen(false); onHelp(event); }}
+          className={(leading ? "" : "ml-auto ") + "mr-1 min-h-[44px] px-3 rounded-radius-sm font-sans text-[14px] font-medium text-text-secondary hover:text-text-primary hover:bg-surface-muted transition-colors focus-ring"}
+        >
+          Help
+        </button>
+      )}
       {/* Right side: gear button + panel */}
       <div
         ref={panelRef}
-        className={leading ? "relative" : "ml-auto relative"}
+        className={leading || onHelp ? "relative" : "ml-auto relative"}
         onKeyDown={(e) => {
           if (e.key === "Escape" && open) {
             setOpen(false);
@@ -149,6 +158,7 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {}, lead
           </div>
         )}
       </div>
+      {accountControls && <div className="ml-3 flex items-center gap-3 min-w-0">{accountControls}</div>}
     </header>
   );
 }

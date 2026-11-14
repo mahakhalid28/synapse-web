@@ -11,7 +11,7 @@
 // playback and problems are announced.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getNoteAudio } from "../lib/notesStore.js";
+import { getNoteAudio } from "../lib/backendNotes.js";
 
 export function useNotePlayer({
   announce = () => {},

@@ -8,6 +8,10 @@ This repository is the **React + Vite + Tailwind renderer, wrapped in Electron**
 
 ---
 
+## Personal storage update (2026-11-13)
+
+Library, Recents, bookmarks and permanent voice notes now use the backend on this computer. IndexedDB retains recording drafts until upload acknowledgement and original browser saves remain available for explicit import. Saved explanation opening plays preserved audio with the video paused; lecture/note-time opening stays paused. Voice actions use the same UI handlers. The packaged app uses a trusted loopback origin with browser security enabled, plus a read-only bridge for previous packaged storage. See [PERSONAL_STORAGE](docs/PERSONAL_STORAGE.md) for the current implementation and verification limits; older storage/packaging descriptions below predate this change.
+
 ## What is implemented
 
 | Feature | Where | Status |

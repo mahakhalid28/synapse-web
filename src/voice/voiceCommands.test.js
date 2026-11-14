@@ -26,6 +26,37 @@ function setup({ handlers = {}, describe = () => ({ screen: "explanation", video
 }
 const utterance = { wav: new Blob(["w"]), before: null };
 
+describe("saved media commands", () => {
+  it("accepts a spoken yes for a confirmation opened by a button", async () => {
+    const confirm = vi.fn();
+    const env = setup({ handlers: { confirm_yes: confirm }, describe: () => ({ screen: "notes", pendingConfirmation: "confirm_note_deletion" }),
+      responses: [execute("confirm_yes")] });
+    await env.handle(utterance);
+    expect(env.deps.interpretText.mock.calls[0][0].context.pending_confirmation).toBe("confirm_note_deletion");
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+  it("does not speak acknowledgement or restore old media over a saved explanation", async () => {
+    const open = vi.fn();
+    const env = setup({ handlers: { play_item_audio: open }, describe: () => ({ screen: "library" }),
+      responses: [execute("play_item_audio", { index: 1 })] });
+    expect(await env.handle(utterance)).toEqual({ leftScreen: true });
+    expect(open).toHaveBeenCalledWith({ index: 1 });
+    expect(env.said).toEqual([]);
+  });
+  it("refuses a positional deletion when its selected item changes before confirmation", async () => {
+    let ref = "first-entry";
+    const remove = vi.fn();
+    const env = setup({ handlers: { remove_item: remove },
+      describe: () => ({ screen: "bookmarks", items: [{ ref, kind: "bookmark", label: "An explanation", position: 1 }] }),
+      responses: [reply("confirm", { action: "remove_item", args: { index: 1 } }), execute("confirm_yes")] });
+    await env.handle(utterance);
+    ref = "different-entry";
+    await env.handle(utterance);
+    expect(remove).not.toHaveBeenCalled();
+    expect(env.said.at(-1)).toContain("list has changed");
+  });
+});
+
 describe("running a command", () => {
   it("runs the registered handler with its arguments, then speaks, and reports no playback change", async () => {
     const order = [];
@@ -123,6 +154,20 @@ describe("running a command", () => {
 });
 
 describe("confirmation", () => {
+  it("Help clears a pending confirmation so a later yes cannot execute it", async () => {
+    const remove = vi.fn();
+    const env = setup({
+      handlers: { remove_item: remove },
+      describe: () => ({ screen: "bookmarks" }),
+      responses: [reply("confirm", { action: "remove_item", args: { index: 2 } }), execute("confirm_yes")],
+    });
+    await env.handle(utterance);
+    env.handle.cancel();
+    await env.handle(utterance);
+    expect(remove).not.toHaveBeenCalled();
+    expect(env.said.at(-1)).toBe(MESSAGES.nothingToConfirm);
+  });
+
   it("asks first for a risky action, then runs it only after a spoken yes", async () => {
     const remove = vi.fn();
     const env = setup({
@@ -235,6 +280,42 @@ describe("when things go wrong", () => {
     const env = setup({ responses: [{ decision: "execute" }] });
     await env.handle(utterance);
     expect(env.said).toEqual([MESSAGES.notUnderstood]);
+  });
+});
+
+describe("explanation question answers", () => {
+  it("sends the active question and executes only an offered choice without an overlapping acknowledgement", async () => {
+    const answer = vi.fn();
+    const env = setup({
+      handlers: { answer_explanation: answer },
+      describe: () => ({ screen: "explanation", explanationQuestion: { id: "q1", choices: ["listen", "skip"] }, questionPrompt: "Listen or skip?" }),
+      responses: [execute("answer_explanation", { choice: "listen" })],
+    });
+    expect(await env.handle({ ...utterance, before: { questionId: "q1" } })).toEqual({ playbackCommand: "answer_explanation" });
+    expect(answer).toHaveBeenCalledWith({ choice: "listen" });
+    expect(env.said).toEqual([]);
+    expect(env.deps.interpretText.mock.calls[0][0].context.explanation_question).toEqual({ id: "q1", choices: ["listen", "skip"] });
+  });
+  it("discards an answer when the active question changed during recording", async () => {
+    const answer = vi.fn();
+    const env = setup({ handlers: { answer_explanation: answer }, describe: () => ({ screen: "explanation", explanationQuestion: { id: "q2", choices: ["yes", "no"] } }) });
+    await env.handle({ ...utterance, before: { questionId: "q1" } });
+    expect(env.deps.interpretText).not.toHaveBeenCalled();
+    expect(answer).not.toHaveBeenCalled();
+  });
+  it("discards an interpreted answer if the question changed during interpretation", async () => {
+    const answer = vi.fn();
+    let id = "q1";
+    const env = setup({ handlers: { answer_explanation: answer }, describe: () => ({ screen: "explanation", explanationQuestion: { id, choices: ["listen", "skip"] } }) });
+    env.deps.interpretText.mockImplementation(async () => { id = "q2"; return execute("answer_explanation", { choice: "listen" }); });
+    await env.handle({ ...utterance, before: { questionId: "q1" } });
+    expect(answer).not.toHaveBeenCalled();
+  });
+  it("does not run a choice absent from the current question", async () => {
+    const answer = vi.fn();
+    const env = setup({ handlers: { answer_explanation: answer }, describe: () => ({ screen: "explanation", explanationQuestion: { id: "q1", choices: ["listen", "skip"] } }), responses: [execute("answer_explanation", { choice: "detailed" })] });
+    await env.handle({ ...utterance, before: { questionId: "q1" } });
+    expect(answer).not.toHaveBeenCalled();
   });
 });
 

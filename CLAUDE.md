@@ -60,8 +60,17 @@ skip the skip-link/sidebar out of tab order for first-time visitors).
 
 ## Voice Notes (record a personal note at a lecture moment)
 
-Audio is stored locally only (IndexedDB), never sent anywhere, never in
-localStorage.
+Permanent audio is stored by the backend on this computer, with database
+metadata. IndexedDB retains recording drafts until acknowledged upload, and
+keeps original browser recordings during explicit legacy import. Audio never
+goes in localStorage. `src/lib/backendNotes.js` is the recorder/player storage
+seam; `src/lib/notesStore.js` owns the browser drafts and legacy copies.
+
+Current personal-storage behaviour is documented in `docs/PERSONAL_STORAGE.md`.
+Every new user action must have a voice mapping to the same button handler and
+follow the existing focus/status patterns. Opening a saved explanation seeks
+and plays its preserved audio with video paused; opening a lecture or note time
+stays paused. Saved opening is read-only and must not restart inference.
 
 - `src/lib/notesStore.js` — IndexedDB store (`notes` + `audio`, one atomic
   transaction per save/delete; `add()` only, duplicates rejected). Tests use
@@ -90,20 +99,18 @@ goes through `leaveScreen()`.
 
 Electron: `electron/permissions.cjs` is a deny-by-default allowlist (audio-only
 microphone from the main frame, fullscreen, persistent-storage). Dev
-(`localhost:5173`) and the packaged app (`file://`) are different origins, so
-their IndexedDB databases should be SEPARATE (expected, not tested against one
-shared profile).
+(`localhost:5173`) and the packaged app (`127.0.0.1:5174`) have different browser
+storage origins. The explicit import bridge reads the previous packaged
+`file://` profile without changing it; browser profiles remain separate.
 
-Packaged app (`file://`): YouTube refuses to play an embed on a page that sends
-no Referer ("Error 153"), so `electron/youtubeReferer.cjs` adds
-`Referer: https://synapse.invalid/` to the YouTube player's *frame* request only,
-only when it has no Referer, only in the packaged branch of `electron.cjs`
-(dev has a real `http://localhost` Referer). `.invalid` is a reserved TLD. It
-relies on YouTube's behaviour. The packaged `file://` page is inferred to
-depend on `webSecurity: false` for its module script (not tested by turning it
-off). There is no `build` block in package.json yet; packaged builds so far
-were scratch UNPACKED builds with the electron-builder config kept outside the
-repo. Installer, signing and icon: not tried.
+Packaged app now serves `dist` at `http://127.0.0.1:5174/index.html` with
+`webSecurity: true`. This origin is explicitly allowed by the backend. The
+existing YouTube Referer hook remains. `electron/legacyReader.cjs` reads old
+`file://` storage through a hidden, network-disabled utility at the original
+URL; its limited preload is restricted to the trusted main frame. Import is
+explicit and preserves originals. Real installed-profile migration, real
+YouTube playback under the new packaged origin, installer, signing and icon
+still need manual verification; unit checks are not proof of those behaviours.
 
 Voice Notes validation status (details and the NOT TESTED list: `docs/VOICE_NOTES_VALIDATION.md`;
 labels AUTOMATED / SCRIPTED-REAL / HUMAN / NOT TESTED are defined there):

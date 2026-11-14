@@ -29,6 +29,8 @@ const h = vi.hoisted(() => {
 
 vi.mock("./lib/youtubeIframeApi", () => ({ loadYouTubeIframeAPI: () => Promise.resolve({ Player: h.FakePlayer }) }));
 vi.mock("./api", () => ({
+  cancelLectureExplanations: vi.fn(async () => {}),
+  openLectureExplanations: vi.fn(async () => {}),
   processVideo: vi.fn(async ({ videoId }) => ({ jobId: videoId })),
   resetMockTimer: vi.fn(),
   getInterventionPoints: vi.fn(async () => ({
@@ -55,7 +57,7 @@ vi.mock("./lib/quizStore.js", async (importOriginal) => {
   const real = await importOriginal();
   const { createFakeIndexedDB } = await import("./test/fakeIndexedDb.js");
   const store = real.createQuizStore({ indexedDB: createFakeIndexedDB().factory, storage: undefined });
-  return { ...real, ...Object.fromEntries(Object.entries(store).map(([name, fn]) => [name, fn])) };
+  return { ...real, bindAccount: () => store, ...Object.fromEntries(Object.entries(store).map(([name, fn]) => [name, fn])) };
 });
 
 let counter = 0;

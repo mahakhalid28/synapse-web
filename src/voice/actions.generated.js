@@ -389,7 +389,7 @@ export const ACTIONS = {
         "type": "int",
         "required": true,
         "min": 1,
-        "max": 500
+        "max": 60
       }
     },
     "risk": "low",
@@ -399,14 +399,15 @@ export const ACTIONS = {
   "play_item_audio": {
     "category": "collections",
     "screens": [
-      "library"
+      "library",
+      "bookmarks"
     ],
     "params": {
       "index": {
         "type": "int",
         "required": true,
         "min": 1,
-        "max": 500
+        "max": 60
       }
     },
     "risk": "low",
@@ -424,7 +425,7 @@ export const ACTIONS = {
         "type": "int",
         "required": true,
         "min": 1,
-        "max": 500
+        "max": 60
       }
     },
     "risk": "confirm",
@@ -783,6 +784,327 @@ export const ACTIONS = {
     "params": {},
     "risk": "low",
     "binding": "Timeline.announce",
+    "bindingStatus": "wrapper"
+  },
+  "answer_explanation": {
+    "category": "dialog",
+    "screens": [
+      "explanation"
+    ],
+    "params": {
+      "choice": {
+        "type": "enum",
+        "required": true,
+        "values": [
+          "listen",
+          "skip",
+          "yes",
+          "no",
+          "brief",
+          "standard",
+          "detailed",
+          "wait",
+          "resume",
+          "later",
+          "replay",
+          "retry",
+          "next",
+          "finish",
+          "process"
+        ]
+      }
+    },
+    "risk": "low",
+    "binding": "Explanation.conversation.answer",
+    "bindingStatus": "wrapper"
+  },
+  "play_note": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {
+      "index": {
+        "type": "int",
+        "required": true,
+        "min": 1,
+        "max": 60
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "stop_note_audio": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "delete_note": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {
+      "index": {
+        "type": "int",
+        "required": true,
+        "min": 1,
+        "max": 60
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "confirm_note_deletion": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "cancel_note_deletion": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "open_note_explanation": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {
+      "index": {
+        "type": "int",
+        "required": true,
+        "min": 1,
+        "max": 60
+      },
+      "explanation": {
+        "type": "int",
+        "required": true,
+        "min": 1,
+        "max": 60
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "save_note_draft": {
+    "category": "collections",
+    "screens": [
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "discard_note_draft": {
+    "category": "collections",
+    "screens": [
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "import_local_saves": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks",
+      "notes"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "filter_saved_items": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks"
+    ],
+    "params": {
+      "query": {
+        "type": "string",
+        "required": true,
+        "max_length": 160
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "clear_saved_filter": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "next_saved_page": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks",
+      "notes",
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "previous_saved_page": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks",
+      "notes",
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "retry_saved_load": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks",
+      "notes",
+      "explanation"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "set_saved_view": {
+    "category": "collections",
+    "screens": [
+      "library"
+    ],
+    "params": {
+      "view": {
+        "type": "enum",
+        "required": true,
+        "values": [
+          "lectures",
+          "recent"
+        ]
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "confirm_saved_removal": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "cancel_saved_removal": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "read_saved_item": {
+    "category": "collections",
+    "screens": [
+      "library",
+      "bookmarks"
+    ],
+    "params": {
+      "index": {
+        "type": "int",
+        "required": true,
+        "min": 1,
+        "max": 60
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "open_note": {
+    "category": "collections",
+    "screens": [
+      "notes",
+      "explanation"
+    ],
+    "params": {
+      "index": {
+        "type": "int",
+        "required": true,
+        "min": 1,
+        "max": 60
+      }
+    },
+    "risk": "low",
+    "binding": "useVoiceActions shared UI handler",
+    "bindingStatus": "existing"
+  },
+  "request_explanation": {
+    "category": "lecture",
+    "screens": [
+      "explanation"
+    ],
+    "params": {
+      "depth": {
+        "type": "enum",
+        "required": false,
+        "values": [
+          "brief",
+          "standard",
+          "detailed"
+        ]
+      }
+    },
+    "risk": "low",
+    "binding": "Explanation.conversation.requestCurrent",
     "bindingStatus": "wrapper"
   }
 };

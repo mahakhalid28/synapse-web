@@ -27,7 +27,8 @@ import { useAnnouncer } from "./useAnnouncer.js";
 
 const MAX_HINTS = 2;
 
-export function useQuizSession({ videoId, store, api }) {
+export function useQuizSession({ videoId, store: requestedStore, api }) {
+  const [store] = useState(() => requestedStore.bindAccount?.() || requestedStore);
   const { message: announcement, announce } = useAnnouncer();
 
   const [phase, setPhase] = useState("init");

@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { newLectureConversation } from "./hooks/useExplanationConversation";
 import Welcome from "./components/Welcome";
+import HelpDialog from "./components/HelpDialog";
 import Home from "./components/Home";
 import SubjectLectures from "./components/SubjectLectures";
 import Timeline from "./components/Timeline";
@@ -9,7 +11,10 @@ import LibraryScreen from "./components/LibraryScreen";
 import NotesScreen from "./components/NotesScreen";
 import QuizScreen from "./components/QuizScreen";
 import Navbar from "./components/Navbar";
+import { Login, Signup } from "./components/AccountForm";
+import { developmentAccess } from "./lib/accountPolicy";
 import * as processingApi from "./api";
+import { ensureLectureSession, releaseLectureSession, LECTURE_SESSION_EXPIRED } from "./lib/lectureRequests";
 import { getLibrary } from "./storage";
 import { isValidVideoId } from "./lib/askApi";
 import { quizEnabled } from "./lib/quizFlag";
@@ -18,12 +23,19 @@ import { needsWelcome } from "./lib/onboardingPrefs";
 import { voiceControlEnabled } from "./lib/voiceFlag";
 import VoiceControl from "./voice/VoiceControl";
 import { useVoiceActions } from "./voice/voiceActions";
+import { getSavedLibrary, getSavedList, PERSONAL_CHANGED, personalRequest } from "./lib/personalApi";
+import { updatePersonalSummary } from "./storage";
+import { ACCOUNT_CHANGED, currentAccount, initializeAccount, LOCAL_PROFILE_ID, captureAccount, assertAccount, logout, prepareAccountChange } from "./lib/accountSession";
 
 const PROCESSING_SESSION_KEY = "synapse_active_processing_job";
+const processingSessionKey = () => {
+  const id = currentAccount().user?.id;
+  return id === LOCAL_PROFILE_ID ? PROCESSING_SESSION_KEY : `${PROCESSING_SESSION_KEY}:${id || "signed-out"}`;
+};
 
 function readProcessingSession() {
   try {
-    const value = JSON.parse(sessionStorage.getItem(PROCESSING_SESSION_KEY));
+    const value = JSON.parse(sessionStorage.getItem(processingSessionKey()));
     return value?.processingJobId && value?.videoId ? value : null;
   } catch {
     return null;
@@ -59,7 +71,11 @@ function shouldAcceptProcessingStatus(current, next) {
   return true;
 }
 
-function App() {
+// This subtree is mounted only after identity is resolved. Its personal reads,
+// processing restoration and voice navigation cannot run on account screens.
+function StudyApp({ theme, setTheme, accountControls, notice }) {
+  const [accountRevision, setAccountRevision] = useState(0);
+  const [accountNotice, setAccountNotice] = useState("");
   const [startup] = useState(() => {
     const restoredProcessing = readProcessingSession();
     return {
@@ -69,6 +85,69 @@ function App() {
   });
   const [screen,  setScreen]  = useState(startup.initialScreen);
   const [jobInfo, setJobInfo] = useState(null);
+  const [personalSummary, setPersonalSummary] = useState([]);
+  const openingToken = useRef(0);
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => {
+      const account = captureAccount();
+      try {
+        const [lectures, bookmarks] = await Promise.all([getSavedLibrary(), getSavedList("bookmarks")]);
+        if (!alive) return;
+        assertAccount(account);
+        updatePersonalSummary(lectures, bookmarks);
+        setPersonalSummary(lectures);
+      } catch { /* Collection screens provide explicit loading/retry errors. */ }
+    };
+    void refresh();
+    window.addEventListener(PERSONAL_CHANGED, refresh);
+    window.addEventListener(ACCOUNT_CHANGED, refresh);
+    return () => { alive = false; window.removeEventListener(PERSONAL_CHANGED, refresh); window.removeEventListener(ACCOUNT_CHANGED, refresh); };
+  }, []);
+  const [cleanupFailure, setCleanupFailure] = useState(null);
+  const [requestSession, setRequestSession] = useState(null);
+  const lastLectureView = useRef(null);
+  const lastReadOnly = useRef(false);
+  const lectureOperations = useRef(Promise.resolve());
+  const activeLectureVideo = ["explanation", "timeline"].includes(screen) ? jobInfo?.videoId : null;
+  const lectureConversation = useMemo(() => newLectureConversation(activeLectureVideo), [activeLectureVideo]);
+  useEffect(() => {
+    const expired = (event) => {
+      if (lastLectureView.current !== event.detail.videoId) return;
+      setRequestSession(null);
+      setCleanupFailure({ videoId: event.detail.videoId, operation: "session" });
+    };
+    window.addEventListener(LECTURE_SESSION_EXPIRED, expired);
+    return () => window.removeEventListener(LECTURE_SESSION_EXPIRED, expired);
+  }, []);
+  useEffect(() => {
+    const current = ["explanation", "timeline"].includes(screen) ? jobInfo?.videoId : null;
+    const previous = lastLectureView.current;
+    const previousReadOnly = lastReadOnly.current;
+    lastReadOnly.current = Boolean(jobInfo?.readOnly);
+    lastLectureView.current = current;
+    if (previous !== current || previousReadOnly !== Boolean(jobInfo?.readOnly)) {
+      const reopen = current && (!jobInfo?.promise || jobInfo?.processingStatus?.status === "succeeded");
+      lectureOperations.current = lectureOperations.current.catch(() => {}).then(async () => {
+        if (previous && !previousReadOnly) {
+          try { await releaseLectureSession(previous); }
+          catch { setCleanupFailure({ videoId: previous, operation: "stop" }); return; }
+        }
+        if (current && !jobInfo?.readOnly) {
+          try {
+            const id = await ensureLectureSession(current);
+            if (lastLectureView.current === current) setRequestSession({ videoId: current, id });
+          } catch {
+            setCleanupFailure({ videoId: current, operation: "session" });
+          }
+        }
+        if (reopen && !jobInfo?.readOnly && lastLectureView.current === current) {
+          try { await processingApi.openLectureExplanations(current); }
+          catch { setCleanupFailure({ videoId: current, operation: "open" }); }
+        }
+      });
+    }
+  }, [screen, jobInfo?.videoId, jobInfo?.promise, jobInfo?.processingStatus?.status, jobInfo?.readOnly]);
   const [exploreSubject, setExploreSubject] = useState(null);
   // The lecture a quiz belongs to, fixed when "Practice this lecture" is pressed. The quiz screen and
   // every "Check in the lecture" are checked against it, so a quiz is never tied to another video.
@@ -80,7 +159,6 @@ function App() {
   const [hasLeftHome, setHasLeftHome] = useState(false);
 
   // ── Theme ──────────────────────────────────────────────────────────────────
-  const [theme, setTheme] = useState(readSavedTheme);
 
   // A screen change here is a view swap, not a page load, so a screen reader
   // is told nothing unless focus moves. Land on the new screen's <h1> (made
@@ -119,10 +197,6 @@ function App() {
     if (titles[screen]) document.title = `${titles[screen]} – Synapse`;
   }, [screen, exploreSubject]);
 
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    saveTheme(theme);
-  }, [theme]);
 
   // ── HOME -> EXPLANATION (processing now happens inline, no blocking screen) ─
   const isProcessingRef = useRef(false);
@@ -133,10 +207,35 @@ function App() {
   const [processingAction, setProcessingAction] = useState(null);
   const [processingActionError, setProcessingActionError] = useState(null);
 
+  useEffect(() => {
+    const changed = () => {
+      openingToken.current++;
+      // Dispose private views without invoking lecture open/cancel navigation.
+      lastLectureView.current = null;
+      lastReadOnly.current = false;
+      processingTokenRef.current = null;
+      processingControllerRef.current?.abort(); // stop polling, not the server job
+      processingActionControllerRef.current?.abort();
+      isProcessingRef.current = false;
+      restoredProcessingRef.current = null;
+      setJobInfo(null);
+      setRequestSession(null);
+      setQuizInfo(null);
+      setPersonalSummary([]);
+      setCleanupFailure(null);
+      setScreen(needsWelcome() ? "welcome" : "home");
+      setAccountRevision((value) => value + 1);
+      setAccountNotice(currentAccount().status === "invalid" ? "Your session ended. Sign in again to access your account data." : "");
+    };
+    window.addEventListener(ACCOUNT_CHANGED, changed);
+    return () => window.removeEventListener(ACCOUNT_CHANGED, changed);
+  }, []);
+
   const startProcessing = (
     { url, videoId, mode, metadata = null },
     { processingJobId = null, retry = false, reconnect = false, resume = false } = {},
   ) => {
+    const sessionKey = processingSessionKey();
     if (isProcessingRef.current && !resume) return;
     isProcessingRef.current = true;
     processingControllerRef.current?.abort();
@@ -195,7 +294,7 @@ function App() {
       .then((result) => {
         if (result?.status !== "cancelled") {
           try {
-            sessionStorage.removeItem(PROCESSING_SESSION_KEY);
+            sessionStorage.removeItem(sessionKey);
           } catch {
             // Completion is unaffected when session storage is unavailable.
           }
@@ -231,7 +330,11 @@ function App() {
     setHasLeftHome(true);
     setScreen("explanation");
   };
-  const handleProcess = (request) => startProcessing(request);
+  const handleProcess = (request) => {
+    openingToken.current++;
+    if (request.resume) return handleOpenLibraryExplanation({ ...request.metadata, videoId: request.videoId, jobId: request.videoId, mode: request.mode, autoPlay: false });
+    return startProcessing(request);
+  };
 
   const handleRetryProcessing = () => {
     if (!jobInfo) return;
@@ -326,7 +429,7 @@ function App() {
     const processingJobId = jobInfo?.processingJobId;
     if (!processingJobId) return;
     try {
-      sessionStorage.setItem(PROCESSING_SESSION_KEY, JSON.stringify({
+      sessionStorage.setItem(processingSessionKey(), JSON.stringify({
         processingJobId,
         videoId: jobInfo.videoId,
         url: jobInfo.url,
@@ -355,6 +458,7 @@ function App() {
 
   // ── TIMELINE -> EXPLANATION ────────────────────────────────────────────────
   const handleOpenPoint = (point) => {
+    lectureConversation.selectMoment(point.id);
     setJobInfo({ ...jobInfo, pointId: point.id });
     setScreen("explanation");
   };
@@ -372,6 +476,8 @@ function App() {
 
   // ── BOOKMARKS -> EXPLANATION ───────────────────────────────────────────────
   const handleOpenBookmark = (bookmark) => {
+    if (bookmark.ownerId && bookmark.ownerId !== currentAccount().user?.id) return;
+    openingToken.current++;
     setJobInfo({
       jobId:        bookmark.jobId,
       videoId:      bookmark.videoId,
@@ -379,13 +485,25 @@ function App() {
       mode:         bookmark.mode,
       bookmarkData: bookmark,
       lectureMetadata: bookmark,
+      savedVersionId: bookmark.savedVersionId,
+      readOnly: true,
+      startSeconds: bookmark.lectureSeconds,
+      autoPlay: bookmark.autoPlay !== false,
     });
     setScreen("explanation");
   };
 
   // ── LIBRARY -> EXPLANATION ─────────────────────────────────────────────────
-  const handleOpenLibraryExplanation = (item) => {
+  const handleOpenLibraryExplanation = async (item) => {
+    if (item.ownerId && item.ownerId !== currentAccount().user?.id) return;
+    const token = ++openingToken.current;
     const { pointId, videoId, jobId, mode, autoPlay } = item;
+    let startSeconds = item.lectureSeconds;
+    if (!pointId && startSeconds == null) {
+      try { startSeconds = (await personalRequest(`playback/${encodeURIComponent(videoId)}`)).position_seconds; }
+      catch { /* A new lecture has no playback position yet. */ }
+      if (token !== openingToken.current) return;
+    }
     setJobInfo({
       jobId,
       videoId,
@@ -393,6 +511,9 @@ function App() {
       mode,
       autoPlay: !!autoPlay,
       lectureMetadata: item,
+      savedVersionId: item.savedVersionId,
+      readOnly: true,
+      startSeconds,
     });
     setScreen("explanation");
   };
@@ -402,6 +523,9 @@ function App() {
   // presses Play), like opening a bookmark. The note doesn't store the depth
   // mode, so it is looked up from the library entry for the same video.
   const handleOpenNote = (note) => {
+    if (note.ownerId && note.ownerId !== currentAccount().user?.id) return;
+    openingToken.current++;
+    if (note.savedExplanation) { handleOpenBookmark(note.savedExplanation); return; }
     const known = getLibrary().find((e) => e.videoId === note.videoId);
     setJobInfo({
       jobId:        note.jobId || note.videoId,
@@ -410,6 +534,7 @@ function App() {
       mode:         known?.mode || "standard",
       startSeconds: note.lectureSeconds,
       lectureMetadata: known || note,
+      readOnly: true,
     });
     setScreen("explanation");
   };
@@ -441,6 +566,7 @@ function App() {
     const known = getLibrary().find((e) => e.videoId === videoId);
     setJobInfo({
       jobId:        quizInfo.jobId,
+      readOnly: true,
       videoId,
       mode:         known?.mode || jobInfo?.mode || "standard",
       startSeconds: safeStartSeconds(startSeconds),
@@ -450,6 +576,7 @@ function App() {
 
   // ── SIDEBAR NAVIGATION ─────────────────────────────────────────────────────
   const handleNavigate = (key) => {
+    openingToken.current++;
     processingControllerRef.current?.abort();
     processingActionControllerRef.current?.abort();
     processingControllerRef.current = null;
@@ -477,6 +604,57 @@ function App() {
     setHasLeftHome(true);
     setScreen("home");
   };
+
+  const helpVoiceRef = useRef(null);
+  const registerHelpInterruption = useCallback((control) => {
+    helpVoiceRef.current = control;
+    return () => { if (helpVoiceRef.current === control) helpVoiceRef.current = null; };
+  }, []);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpNotice, setHelpNotice] = useState("");
+  const helpGuardRef = useRef(null);
+  // The screen on show calls this to register its guard; it returns the function that removes it.
+  const registerHelpGuard = useCallback((guard) => {
+    helpGuardRef.current = guard;
+    return () => {
+      if (helpGuardRef.current === guard) helpGuardRef.current = null;
+    };
+  }, []);
+  const helpOpenerRef = useRef(null);
+  const restoreHelpFocusRef = useRef(false);
+
+  // `source` is the click event from a Help button (its button gets focus back on close) or an element.
+  const openHelp = (source) => {
+    if (helpOpen) return;
+    const result = helpGuardRef.current?.beforeHelp?.() ?? { blocked: false };
+    if (result.blocked) return;
+    helpVoiceRef.current?.interrupt();
+    helpOpenerRef.current = source?.currentTarget ?? source ?? document.activeElement;
+    setHelpNotice(result.notice || "");
+    setHelpOpen(true);
+  };
+  const closeHelp = () => {
+    helpGuardRef.current?.afterHelp?.();
+    restoreHelpFocusRef.current = true;
+    setHelpOpen(false);
+  };
+  // Runs after the screen behind is no longer inert, so focus can go back to where Help was opened
+  // (or, if that is gone, to the page heading).
+  useEffect(() => {
+    if (helpOpen || !restoreHelpFocusRef.current) return;
+    restoreHelpFocusRef.current = false;
+    const opener = helpOpenerRef.current;
+    helpOpenerRef.current = null;
+    if (opener && opener.isConnected) {
+      opener.focus();
+      return;
+    }
+    const h1 = document.querySelector("main h1");
+    if (h1) {
+      h1.setAttribute("tabindex", "-1");
+      h1.focus({ preventScroll: true });
+    }
+  }, [helpOpen]);
 
   // Global voice commands delegate to the same navigation, theme and lecture
   // handlers as the visible controls. Welcome deliberately registers none.
@@ -526,7 +704,7 @@ function App() {
   let activeScreen;
 
   if (screen === "welcome") {
-    activeScreen = <Welcome onDone={handleWelcomeDone} />;
+    activeScreen = <Welcome onDone={handleWelcomeDone} onOpenHelp={openHelp} />;
   } else if (screen === "timeline" && jobInfo) {
     activeScreen = (
       <Timeline
@@ -542,15 +720,32 @@ function App() {
   } else if (screen === "explanation" && jobInfo) {
     activeScreen = (
       <Explanation
+        key={`${jobInfo.videoId}-${jobInfo.readOnly ? "saved" : "active"}-${jobInfo.savedVersionId || "live"}`}
         jobId={jobInfo.jobId}
         videoId={jobInfo.videoId}
         pointId={jobInfo.pointId}
         mode={jobInfo.mode}
+        conversationSession={lectureConversation}
         promise={jobInfo.promise || null}
         processingStatus={jobInfo.processingStatus || null}
         bookmarkData={jobInfo.bookmarkData || null}
         lectureMetadata={jobInfo.lectureMetadata || null}
         autoPlay={jobInfo.autoPlay || false}
+        readOnly={jobInfo.readOnly || false}
+        savedVersionId={jobInfo.savedVersionId || null}
+        requestSessionId={requestSession?.videoId === jobInfo.videoId ? requestSession.id : null}
+        onReconnectSession={async () => {
+          const id = await ensureLectureSession(jobInfo.videoId);
+          await processingApi.openLectureExplanations(jobInfo.videoId);
+          setRequestSession({ videoId: jobInfo.videoId, id });
+          setCleanupFailure(null);
+        }}
+        onActivateProcessing={(point, depth) => {
+          startProcessing({ url: `https://www.youtube.com/watch?v=${jobInfo.videoId}`,
+            videoId: jobInfo.videoId, mode: depth, metadata: jobInfo.lectureMetadata });
+          lectureConversation.requestActivation(point, depth);
+        }}
+        onOpenSaved={handleOpenBookmark}
         startSeconds={jobInfo.startSeconds ?? null}
         onNavigate={handleNavigate}
         onRetryProcessing={handleRetryProcessing}
@@ -559,6 +754,8 @@ function App() {
         processingAction={processingAction}
         processingActionError={processingActionError}
         onOpenTimeline={handleOpenTimeline}
+        registerHelpGuard={registerHelpGuard}
+        onOpenHelp={openHelp}
         onStartPractice={quizEnabled() && isValidVideoId(jobInfo.videoId) ? handleStartQuiz : undefined}
       />
     );
@@ -585,6 +782,7 @@ function App() {
       <NotesScreen
         onNavigate={handleNavigate}
         onOpenNote={handleOpenNote}
+        registerHelpGuard={registerHelpGuard}
       />
     );
   } else if (screen === "library") {
@@ -605,6 +803,7 @@ function App() {
   } else {
     activeScreen = (
       <Home
+        continueLecture={personalSummary[0] ? { ...personalSummary[0], title: personalSummary[0].videoTitle } : undefined}
         onProcess={handleProcess}
         onNavigate={handleNavigate}
         onExploreSubject={handleExploreSubject}
@@ -615,7 +814,8 @@ function App() {
 
   // ── Layout: Navbar (slim top bar) + screen below ───────────────────────────
   return (
-    <div className="flex flex-col h-screen">
+    <>
+    <div className="flex flex-col h-screen" inert={helpOpen ? "" : undefined}>
       {/* One shared skip link, rendered before Navbar so it's genuinely
         first in tab order on every screen — previously each screen (Home,
         SubjectLectures, Timeline) rendered its own copy, but since Navbar
@@ -635,17 +835,148 @@ function App() {
       <Navbar
         theme={theme}
         onThemeChange={setTheme}
+        accountControls={accountControls}
+        onHelp={openHelp}
         leading={
           voiceControlEnabled() && screen !== "welcome"
-            ? <VoiceControl />
+            ? <VoiceControl disabled={helpOpen} registerHelpInterruption={registerHelpInterruption} />
             : null
         }
       />
       <div className="flex-1 overflow-hidden">
-        {activeScreen}
+        {cleanupFailure && <div role="alert" className="p-4 bg-surface border border-border-subtle">
+          {cleanupFailure.operation === "stop" ? "Unfinished work for the previous lecture could not be stopped."
+            : cleanupFailure.operation === "session" ? "Reconnect this lecture to request explanations. You can also say retry explanation."
+            : "Background preparation for this lecture could not be resumed."}
+          <button type="button" className="ds-btn-secondary" onClick={async () => {
+            try {
+              if (cleanupFailure.operation === "stop") {
+                await releaseLectureSession(cleanupFailure.videoId);
+                if (activeLectureVideo && !jobInfo?.readOnly) {
+                  const id = await ensureLectureSession(activeLectureVideo);
+                  setRequestSession({ videoId: activeLectureVideo, id });
+                }
+              }
+              else {
+                const id = await ensureLectureSession(cleanupFailure.videoId);
+                setRequestSession({ videoId: cleanupFailure.videoId, id });
+                await processingApi.openLectureExplanations(cleanupFailure.videoId);
+              }
+              setCleanupFailure(null);
+            }
+            catch { /* Keep the retry visible. */ }
+          }}>{cleanupFailure.operation === "stop" ? "Retry stopping lecture work" : "Retry opening preparation"}</button>
+        </div>}
+        {(notice || accountNotice) && <p role="status" aria-live="polite" className="p-3 bg-surface text-text-primary">{notice || accountNotice}</p>}
+        <Fragment key={accountRevision}>{activeScreen}</Fragment>
+      </div>
+    </div>
+    {helpOpen && <HelpDialog notice={helpNotice} onClose={closeHelp} />}
+    </>
+  );
+}
+
+export default function App() {
+  const [account, setAccount] = useState(currentAccount);
+  const [authScreen, setAuthScreen] = useState(null);
+  const [restoreError, setRestoreError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [theme, setTheme] = useState(readSavedTheme);
+  const alive = useRef(false);
+  const permitted = account.status === "ready" && Boolean(account.user) &&
+    (!account.user.isLocalProfile || developmentAccess());
+
+  const restore = useCallback(() => {
+    const expected = captureAccount();
+    return initializeAccount().then(() => {
+      const next = currentAccount();
+      if (alive.current && expected.generation === next.generation) { setAccount(next); setRestoreError(""); }
+    }).catch((error) => {
+      const next = currentAccount();
+      if (!alive.current || expected.generation !== next.generation) return;
+      setAccount(next);
+      if (next.status === "restoring") setRestoreError("Can't verify your saved session. Check that Synapse is running on this computer, then retry or sign in.");
+      else setNotice(error.message);
+    });
+  }, []);
+
+  useEffect(() => {
+    alive.current = true;
+    const changed = () => {
+      const next = currentAccount();
+      setAccount(next);
+      setAuthScreen(null);
+      setRestoreError("");
+      setNotice(next.status === "invalid" ? "Your session ended. Sign in again to access your account data." :
+        next.token && !next.persistent ? "You're signed in for this session only. Your browser could not save the session; reopening will require sign-in." : "");
+      if (next.status === "restoring") void restore();
+    };
+    window.addEventListener(ACCOUNT_CHANGED, changed);
+    void restore();
+    return () => { alive.current = false; window.removeEventListener(ACCOUNT_CHANGED, changed); };
+  }, [restore]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    saveTheme(theme);
+  }, [theme]);
+
+  const surface = authScreen || (permitted ? "study" : account.status === "restoring" ? "restoring" : "login");
+  const previousSurface = useRef(surface);
+  useEffect(() => {
+    if (surface !== "study") document.title = `${surface === "signup" ? "Create account" : surface === "restoring" ? "Checking session" : "Sign in"} – Synapse`;
+    if (previousSurface.current !== surface) document.querySelector("main h1")?.focus({ preventScroll: true });
+    previousSurface.current = surface;
+  }, [surface]);
+
+  const openAccount = async (screen) => {
+    const expected = captureAccount();
+    try {
+      await prepareAccountChange();
+      assertAccount(expected);
+      if (alive.current) { setNotice(""); setAuthScreen(screen); }
+    } catch (error) { if (alive.current) setNotice(error.message); }
+  };
+  const signOut = async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice("");
+    try { await logout(); }
+    catch (error) { setNotice(error instanceof TypeError ? "Couldn't confirm sign-out. Check the backend connection and try again. You are still signed in." : error.message); }
+    finally { setBusy(false); }
+  };
+  const backToDevelopment = developmentAccess() ? () => {
+    if (permitted && account.user.isLocalProfile) setAuthScreen(null);
+    else void signOut(); // An invalid session requires an explicit local switch.
+  } : null;
+  const accountControls = permitted ? account.user.isLocalProfile ? <>
+    <button type="button" className="ds-btn-text" onClick={() => openAccount("login")}>Sign in</button>
+    <button type="button" className="ds-btn-text" onClick={() => openAccount("signup")}>Create account</button>
+  </> : <>
+    <span className="truncate max-w-[180px] text-[14px] text-text-primary">{account.user.displayName}</span>
+    <button type="button" disabled={busy} className="ds-btn-text" onClick={signOut}>{busy ? "Signing out…" : "Sign out"}</button>
+  </> : null;
+
+  if (surface === "study") return <StudyApp theme={theme} setTheme={setTheme} accountControls={accountControls} notice={notice} />;
+  return (
+    <div className="flex flex-col h-screen bg-background text-text-primary font-sans">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-on-accent focus:px-4 focus:py-2 focus:rounded-radius-md focus-ring">Skip to main content</a>
+      <Navbar theme={theme} onThemeChange={setTheme} />
+      {notice && <p role="status" aria-live="polite" className="p-3">{notice}</p>}
+      <div className="flex-1 overflow-hidden">
+        {surface === "restoring" ? (
+          <main id="main-content" tabIndex={-1} aria-labelledby="page-title" className="max-w-[640px] mx-auto px-6 py-14">
+            <h1 id="page-title" tabIndex={-1} className="text-[32px] font-semibold mb-4 focus-ring">Checking your session</h1>
+            <p role="status" aria-live="polite">{restoreError || "Verifying your saved session…"}</p>
+            {restoreError && <div className="flex flex-wrap gap-3 mt-6">
+              <button type="button" className="ds-btn-primary" onClick={() => { setRestoreError(""); void restore(); }}>Retry</button>
+              <button type="button" className="ds-btn-secondary" onClick={() => setAuthScreen("login")}>Sign in instead</button>
+            </div>}
+          </main>
+        ) : surface === "signup" ? <Signup onNavigate={setAuthScreen} onBack={busy ? null : backToDevelopment} /> :
+          <Login onNavigate={setAuthScreen} onBack={busy ? null : backToDevelopment} />}
       </div>
     </div>
   );
 }
-
-export default App;

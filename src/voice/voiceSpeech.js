@@ -74,7 +74,10 @@ export function createSpeaker({ speakText = defaultSpeakText, announce, createAu
     try {
       for (const piece of chunkText(text)) {
         const url = await speakText(piece);
-        if (mine !== token) return; // stopped while it was being prepared
+        if (mine !== token) {
+          try { URL.revokeObjectURL?.(url); } catch { /* ignore */ }
+          return; // stopped while it was being prepared
+        }
         const finished = await play(url);
         try { URL.revokeObjectURL?.(url); } catch { /* ignore */ }
         if (mine !== token) return;

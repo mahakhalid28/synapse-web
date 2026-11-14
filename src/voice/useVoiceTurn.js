@@ -98,10 +98,19 @@ export class VoiceTurnController {
   dispose() {
     if (this.status !== TURN.IDLE) {
       this.run += 1;
+      this.turn?.abort?.abort();
       this.turn?.capture?.cancel();
       this.finish({});
     }
     this.disposed = true;
+  }
+
+  /** A modal takes ownership: discard this turn without restoring any pre-turn playback. */
+  interrupt() {
+    this.run += 1;
+    this.turn?.abort?.abort();
+    this.turn?.capture?.cancel();
+    this.finish({ leftScreen: true });
   }
 
   // ── The turn ────────────────────────────────────────────────────────────
@@ -116,7 +125,7 @@ export class VoiceTurnController {
 
     this.opts.onStart?.(); // stop any spoken reply at once: the learner is talking again
     const run = ++this.run;
-    this.turn = { port: null, snapshot: null, hold, capture: null, guard: null };
+    this.turn = { port: null, snapshot: null, hold, capture: null, guard: null, abort: new AbortController() };
     registry.setTurnActive(true);
     this.setStatus(TURN.PREPARING);
 
@@ -131,7 +140,7 @@ export class VoiceTurnController {
     this.turn.port = port;
     this.turn.snapshot = port ? port.getSnapshot() : null;
     port?.pause();
-    const quiet = await this.waitUntilQuiet(port);
+    const quiet = await this.waitUntilQuiet(port, run);
     if (run !== this.run) return;
     if (!quiet) return this.abort(run, MESSAGES.notQuiet);
 
@@ -164,13 +173,14 @@ export class VoiceTurnController {
   // YouTube also IGNORES a pause while it is buffering, and resuming after a pause can buffer for seconds on a
   // slow connection (2.2 s in testing). So while the player is buffering the check keeps going (up to
   // QUIET_MAX_MS) and keeps asking, and the pause takes as soon as the player reaches "playing".
-  async waitUntilQuiet(port) {
+  async waitUntilQuiet(port, run = this.run) {
     if (!port) return true;
     const normal = Math.ceil(LIMITS.QUIET_CHECK_MS / LIMITS.QUIET_POLL_MS);
     const longest = Math.ceil(LIMITS.QUIET_MAX_MS / LIMITS.QUIET_POLL_MS);
     let allowed = normal;
     let stable = 0;
     for (let i = 0; i < allowed; i++) {
+      if (run !== this.run) return false;
       const snapshot = port.getSnapshot();
       if (snapshot?.lecture === "buffering") allowed = Math.max(allowed, Math.min(longest, i + normal));
       if (isQuiet(snapshot)) {
@@ -208,6 +218,7 @@ export class VoiceTurnController {
     } catch {
       result = null;
     }
+    if (run !== this.run) return;
     // The microphone is closed now. A lower tone tells the learner it stopped listening.
     try { await d.playTone(STOP_TONE_HZ); } catch { /* the tone is only a cue */ }
     if (run !== this.run) return;
@@ -228,6 +239,7 @@ export class VoiceTurnController {
         silent: isSilent({ peak, rms }) === true,
         endedBy: result.reason,
         before: this.turn?.snapshot ?? null, // what was playing before the turn paused it
+        signal: this.turn?.abort.signal,
       };
       if (run !== this.run) return;
       console.info("[voice] clip", { ms: Math.round(wav.durationMs), peak: +peak.toFixed(4), rms: +rms.toFixed(5), heardSpeech: result.heardSpeech, endedBy: result.reason });
@@ -320,5 +332,6 @@ export function useVoiceTurn({ onUtterance, announce, deps, onStart } = {}) {
     holdStart: () => ctl.holdStart(),
     holdEnd: () => ctl.holdEnd(),
     cancel: () => ctl.cancel("cancelled"),
+    interrupt: () => ctl.interrupt(),
   };
 }

@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App.jsx";
+import { getExplanationPreparationStatus, openLectureExplanations } from "./api.js";
+import { cancelLectureExplanations } from "./api.js";
+import { ACCOUNT_CHANGED } from "./lib/accountSession";
 
 const VIDEO_ID = "aircAruvnKk";
 const POINT_ID = "3f2b8c1e-5d4a-4e7b-9a10-2c6d8e9f0a1b";
 
 const h = vi.hoisted(() => {
+  const audios = [];
+  const players = [];
   const processVideo = vi.fn();
   const getInterventionPoints = vi.fn(async () => ({
     videoTitle: "",
@@ -24,6 +29,7 @@ const h = vi.hoisted(() => {
   }));
   class FakePlayer {
     constructor(_element, options) {
+      players.push(this);
       this.pauseVideo = vi.fn();
       this.playVideo = vi.fn();
       this.seekTo = vi.fn();
@@ -34,10 +40,21 @@ const h = vi.hoisted(() => {
       setTimeout(() => options.events.onReady({ target: this }), 0);
     }
   }
-  return { processVideo, getInterventionPoints, FakePlayer };
+  return { processVideo, getInterventionPoints, FakePlayer, savedRows: [], audios, players };
 });
 
+vi.mock("./lib/personalApi", async (original) => ({
+  ...await original(),
+  getSavedLibrary: vi.fn(async () => [{ videoId: "aircAruvnKk", videoTitle: "Saved lecture", explanations: h.savedRows }]),
+  getSavedList: vi.fn(async () => h.savedRows),
+  getSavedLecture: vi.fn(async () => h.savedRows),
+  trackLecture: vi.fn(async () => {}),
+  personalRequest: vi.fn(async () => ({})),
+}));
+
 vi.mock("./api.js", () => ({
+  cancelLectureExplanations: vi.fn(async () => {}),
+  openLectureExplanations: vi.fn(async () => {}),
   processVideo: h.processVideo,
   resetMockTimer: vi.fn(),
   getInterventionPoints: h.getInterventionPoints,
@@ -76,6 +93,9 @@ vi.mock("./lib/notesStore.js", () => ({
 }));
 
 const savedItem = {
+  savedVersionId: "saved-v1",
+  audioUrl: null,
+  lectureSeconds: 10,
   id: `${VIDEO_ID}-${POINT_ID}`,
   pointId: POINT_ID,
   videoId: VIDEO_ID,
@@ -98,12 +118,18 @@ const savedItem = {
 };
 
 beforeEach(() => {
+  h.audios.length = 0;
+  h.players.length = 0;
+  openLectureExplanations.mockClear();
+  getExplanationPreparationStatus.mockClear();
+  h.savedRows = [savedItem];
   localStorage.clear();
   h.processVideo.mockReset();
   h.getInterventionPoints.mockClear();
   vi.stubGlobal(
     "Audio",
     class {
+      constructor() { h.audios.push(this); }
       play = vi.fn(() => Promise.resolve());
       pause = vi.fn();
       addEventListener = vi.fn();
@@ -113,13 +139,39 @@ beforeEach(() => {
 });
 
 describe("saved lecture reopen", () => {
+  it("disposes private playback on account changes without touching pipeline jobs", async () => {
+    h.savedRows = [{ ...savedItem, audioUrl: "blob:preserved-audio" }];
+    render(<App />);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Bookmarks/ })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: /^Open and play explanation:/ }));
+    await waitFor(() => expect(h.audios.at(-1)?.play).toHaveBeenCalled());
+    const audio = h.audios.at(-1);
+    cancelLectureExplanations.mockClear();
+    openLectureExplanations.mockClear();
+    act(() => window.dispatchEvent(new CustomEvent(ACCOUNT_CHANGED)));
+    await waitFor(() => expect(audio.pause).toHaveBeenCalled());
+    expect(cancelLectureExplanations).not.toHaveBeenCalled();
+    expect(openLectureExplanations).not.toHaveBeenCalled();
+    expect(h.processVideo).not.toHaveBeenCalled();
+  });
+  it("plays the preserved audio with the video paused and never requests preparation", async () => {
+    h.savedRows = [{ ...savedItem, audioUrl: "blob:preserved-audio" }];
+    render(<App />);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Bookmarks/ })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: /^Open and play explanation:/ }));
+    await waitFor(() => expect(h.audios.at(-1)?.play).toHaveBeenCalledTimes(1));
+    expect(h.players.at(-1).playVideo).not.toHaveBeenCalled();
+    expect(openLectureExplanations).not.toHaveBeenCalled();
+    expect(getExplanationPreparationStatus).not.toHaveBeenCalled();
+    expect(h.processVideo).not.toHaveBeenCalled();
+  });
   it("opens a Library entry after restart without processing the video", async () => {
     localStorage.setItem("synapse_library", JSON.stringify([savedItem]));
     render(<App />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Library" })[0]);
     await screen.findByRole("heading", { name: "My Library" });
-    fireEvent.click(screen.getByRole("button", { name: /Read text: Saved moment/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Read text:/ }));
 
     await waitFor(() => expect(h.getInterventionPoints).toHaveBeenCalledWith(VIDEO_ID, VIDEO_ID));
     expect(h.processVideo).not.toHaveBeenCalled();
@@ -139,8 +191,8 @@ describe("saved lecture reopen", () => {
     render(<App />);
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Bookmarks/ })[0]);
-    await screen.findByRole("heading", { name: "Your saved explanations." });
-    fireEvent.click(screen.getByRole("button", { name: /Open Saved moment/ }));
+    await screen.findByRole("heading", { name: "Bookmarks" });
+    fireEvent.click(await screen.findByRole("button", { name: /^Open and play explanation:/ }));
 
     await waitFor(() => expect(h.getInterventionPoints).toHaveBeenCalledWith(VIDEO_ID, VIDEO_ID));
     expect(h.processVideo).not.toHaveBeenCalled();
