@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getBookmarks, getLibrary, STORAGE_CHANGED_EVENT } from "../storage";
+import BrandMark from "./BrandMark";
 
 export default function Sidebar({ active = "home", onNavigate = () => {} }) {
   const [bookmarkCount, setBookmarkCount] = useState(0);
@@ -28,10 +29,11 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
   ];
 
   return (
-    <div className="w-[200px] h-full bg-surface border-r border-border-subtle px-5 py-7 flex flex-col shrink-0 font-sans">
-      {/* Wordmark block */}
-      <div className="pb-6 border-b border-border-subtle">
-        <div className="text-[18px] font-semibold text-text-primary leading-none">
+    <div className="ds-side w-[248px] h-full px-4 py-6 flex flex-col shrink-0 font-sans">
+      {/* Wordmark block: decorative logo mark + the visible "Synapse" text. */}
+      <div className="flex items-center gap-3 px-2 pb-6">
+        <BrandMark size={38} />
+        <div className="text-[21px] font-bold text-side-fg leading-none tracking-tight">
           Synapse
         </div>
       </div>
@@ -62,7 +64,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
               <span className="flex-1 text-left">{label}</span>{" "}
               {count > 0 && (
                 <>
-                  <span aria-hidden="true" className="text-[14px] text-text-secondary bg-surface-muted px-2 py-0.5 rounded-radius-sm">
+                  <span aria-hidden="true" className="text-[14px] text-side-fg bg-side-recent px-2 py-0.5 rounded-radius-sm">
                     {count}
                   </span>
                   <span className="sr-only">, {count} saved</span>
@@ -74,19 +76,19 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
       </div>
 
       {/* Footer block — recently processed */}
-      <div className="mt-auto pt-6 border-t border-border-subtle">
-        <div className="text-[14px] font-medium text-text-secondary mb-2">Recently processed</div>
+      <div className="mt-auto rounded-radius-md bg-side-recent px-4 py-3.5">
+        <div className="text-[14px] font-semibold text-side-fg mb-1.5">Recently processed</div>
         {recentVideo ? (
           <div className="text-[14px] leading-snug">
-            <div className="truncate text-text-primary">{recentVideo.videoTitle || recentVideo.title}</div>
-            <div className="text-text-muted mt-0.5">
+            <div className="truncate text-side-fg">{recentVideo.videoTitle || recentVideo.title}</div>
+            <div className="text-side-muted mt-0.5">
               {new Date(recentVideo.savedAt || recentVideo.processedAt).toLocaleDateString("en-US", {
                 month: "short", day: "numeric",
               })}
             </div>
           </div>
         ) : (
-          <div className="text-[14px] text-text-muted leading-snug">
+          <div className="text-[14px] text-side-muted leading-snug">
             No videos yet.
           </div>
         )}
@@ -101,7 +103,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
 
 function HomeIcon() {
   return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       <path d="M2 7.3 L8 2.5 L14 7.3" />
       <path d="M3.4 6.3 V13 a1 1 0 0 0 1 1 H11.6 a1 1 0 0 0 1-1 V6.3" />
     </svg>
@@ -110,7 +112,7 @@ function HomeIcon() {
 
 function LibraryIcon() {
   return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       <rect x="2.8" y="2.6" width="10.4" height="3" rx="0.6" />
       <rect x="2.8" y="6.5" width="10.4" height="3" rx="0.6" />
       <rect x="2.8" y="10.4" width="10.4" height="3" rx="0.6" />
@@ -120,7 +122,7 @@ function LibraryIcon() {
 
 function MicIcon() {
   return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       <rect x="6" y="2" width="4" height="7" rx="2" />
       <path d="M3.8 7.6 a4.2 4.2 0 0 0 8.4 0" />
       <path d="M8 11.8 V14" />
@@ -130,7 +132,7 @@ function MicIcon() {
 
 function BookmarkIcon() {
   return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       <path d="M4 2.5 H12 V13.5 L8 10.8 L4 13.5 Z" />
     </svg>
   );

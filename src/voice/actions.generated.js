@@ -120,6 +120,28 @@ export const ACTIONS = {
     "binding": "LectureResultsList.onSelect(result)",
     "bindingStatus": "existing"
   },
+  "next_results_page": {
+    "category": "discovery",
+    "screens": [
+      "home",
+      "subject"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useLectureSearch.pagination.onNext",
+    "bindingStatus": "existing"
+  },
+  "previous_results_page": {
+    "category": "discovery",
+    "screens": [
+      "home",
+      "subject"
+    ],
+    "params": {},
+    "risk": "low",
+    "binding": "useLectureSearch.pagination.onPrev",
+    "bindingStatus": "existing"
+  },
   "start_lecture": {
     "category": "discovery",
     "screens": [
