@@ -69,6 +69,51 @@ export function plural(n, one, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/* ── Said aloud by voice commands on the practice screen (a learner who cannot see the screen) ── */
+
+const sentence = (text) => {
+  const clean = String(text ?? "").replace(/\s+/g, " ").trim();
+  return !clean || /[.!?]$/.test(clean) ? clean : `${clean}.`;
+};
+
+/**
+ * "Read the question": where it is, the prompt, every choice, and how to answer by voice.
+ * "Question 2 of 6. Which one is correct? A. alpha. B. bravo. Say your answer, like option B."
+ */
+export function spokenQuestion(question, index, total) {
+  const choices = question.choices.map((choice) => sentence(choiceText(question, choice.id)));
+  const howTo = question.type === "mcq"
+    ? "Say your answer, like option B."
+    : `Say option one for ${choiceText(question, question.choices[0].id)}, or option two for ${choiceText(question, question.choices[1].id)}.`;
+  return [`Question ${index + 1} of ${total}.`, sentence(question.prompt), ...choices, howTo].join(" ");
+}
+
+/** A spoken answer: "You selected B. bravo." */
+export function spokenSelection(question, choiceId) {
+  return `You selected ${sentence(choiceText(question, choiceId))}`;
+}
+
+/**
+ * "Check my answer" in Practice: the same feedback the screen shows, in words. When it is not right the answer
+ * is not given away (the screen keeps it behind "Show the answer" too), so the learner can try again.
+ */
+export function spokenCheck(question, choiceId) {
+  if (choiceId === question.correct_choice_id) return ["Correct.", sentence(question.explanation)].join(" ");
+  return ["Not quite.", sentence(question.explanation), "Choose another answer, or say next question."].join(" ");
+}
+
+/** "Review my answers": how many are answered, and how to finish by voice. */
+export function spokenReview(responses, total) {
+  const answered = countAnswered(responses);
+  const missing = total - answered;
+  return [
+    "Review.",
+    `You answered ${answered} of ${total}.`,
+    missing > 0 ? `${plural(missing, "question")} ${missing === 1 ? "is" : "are"} not answered.` : "",
+    "Say submit my answers to finish.",
+  ].filter(Boolean).join(" ");
+}
+
 export const SAVE_ERROR_MESSAGES = {
   conflict: "This practice was changed in another window. Showing the latest saved version.",
   gone: "This practice was finished or replaced in another window.",

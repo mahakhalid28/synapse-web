@@ -26,7 +26,7 @@ import * as defaultStore from "../lib/quizStore.js";
 import * as defaultApi from "../lib/quizApi.js";
 import { DEFAULT_QUESTION_COUNT } from "../lib/quizApi.js";
 import * as defaultPrefs from "../lib/displayPrefs.js";
-import { AI_NOTICE, choiceText } from "../lib/quizText.js";
+import { AI_NOTICE, spokenCheck, spokenQuestion, spokenReview, spokenSelection } from "../lib/quizText.js";
 import { useVoiceActions } from "../voice/voiceActions";
 
 export default function QuizScreen(props) {
@@ -84,6 +84,12 @@ function QuizScreenInner({
     const question = work.quiz.questions[work.currentIndex];
     const total = work.quiz.questions.length;
     const practice = work.mode === "practice";
+    // Every spoken step says what happened, so the whole practice can be done without seeing the screen.
+    // Moving to another question by voice reads it, since the learner asked to go there.
+    const goAndRead = (index) => {
+      session.goTo(index);
+      session.announce(spokenQuestion(work.quiz.questions[index], index, total));
+    };
     if (work.view === "review") {
       voiceHandlers.quiz_submit = () => session.submitAttempt();
     } else {
@@ -91,25 +97,27 @@ function QuizScreenInner({
         const choice = question.choices[index - 1];
         if (!choice) throw new Error("no such choice");
         session.select(question.id, choice.id);
-        session.announce(`Selected ${choiceText(question, choice.id)}.`);
+        session.announce(`${spokenSelection(question, choice.id)}${practice ? " Say check my answer to hear if it is right." : ""}`);
       };
-      voiceHandlers.quiz_read = () => session.announce(
-        `Question ${work.currentIndex + 1} of ${total}. ${question.prompt} ${question.choices
-          .map((choice) => choiceText(question, choice.id)).join(". ")}.`,
-      );
+      voiceHandlers.quiz_read = () => session.announce(spokenQuestion(question, work.currentIndex, total));
       if (practice) {
         voiceHandlers.quiz_check = () => {
-          if (work.responses[question.id].choiceId === null) {
+          const choiceId = work.responses[question.id].choiceId;
+          if (choiceId === null) {
             session.announce("Choose an answer first, then check it.");
           } else {
             session.check(question.id);
+            session.announce(spokenCheck(question, choiceId));
           }
         };
         voiceHandlers.quiz_hint = () => session.revealHint(question.id);
       }
-      if (work.currentIndex < total - 1) voiceHandlers.quiz_next = () => session.goTo(work.currentIndex + 1);
-      if (work.currentIndex > 0) voiceHandlers.quiz_previous = () => session.goTo(work.currentIndex - 1);
-      voiceHandlers.quiz_review = () => session.openReview();
+      if (work.currentIndex < total - 1) voiceHandlers.quiz_next = () => goAndRead(work.currentIndex + 1);
+      if (work.currentIndex > 0) voiceHandlers.quiz_previous = () => goAndRead(work.currentIndex - 1);
+      voiceHandlers.quiz_review = () => {
+        session.openReview();
+        session.announce(spokenReview(work.responses, total));
+      };
     }
     voiceHandlers.change_text_size = ({ change }) => changeTextSize(change === "smaller" ? -1 : 1);
     voiceHandlers.toggle_high_contrast = toggleContrast;

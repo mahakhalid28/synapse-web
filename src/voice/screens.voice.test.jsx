@@ -130,4 +130,48 @@ describe("Quiz screen", () => {
     expect(Object.keys(registry.handlers())).not.toContain("quiz_answer");
     await store.close();
   });
+
+  it("says each spoken step out loud: the question, the selection, the check, the next question and the review", async () => {
+    const fake = createFakeIndexedDB();
+    const store = createQuizStore({ indexedDB: fake.factory, storage: undefined });
+    const quiz = deepCopy(makeQuiz());
+    const api = { requestQuiz: vi.fn(async () => quiz) };
+    const registry = createActionRegistry();
+    render(withRegistry(<QuizScreen videoId={VIDEO_ID} jobId="j" store={store} api={api} onBack={() => {}} />, registry));
+    await screen.findByRole("heading", { name: "Set up your practice" });
+    await waitFor(() => expect(registry.handlers().quiz_start).toBeTruthy());
+    await act(async () => { await registry.handlers().quiz_start(); });
+    await screen.findByRole("heading", { name: /^Question 1 of/ });
+    const said = () => screen.getByRole("status").textContent;
+    const [first, second] = quiz.questions;
+    const total = quiz.questions.length;
+
+    await act(async () => { registry.handlers().quiz_read(); });
+    await waitFor(() => expect(said()).toMatch(new RegExp(`^Question 1 of ${total}\\.`)));
+    expect(said()).toContain(first.prompt);
+    for (const choice of first.choices) expect(said()).toContain(choice.text);
+
+    const wrong = first.choices.findIndex((c) => c.id !== first.correct_choice_id);
+    await act(async () => { registry.handlers().quiz_answer({ index: wrong + 1 }); });
+    await waitFor(() => expect(said()).toMatch(/^You selected .*Say check my answer/));
+    expect(screen.getAllByRole("radio")[wrong].checked).toBe(true); // selected, still on the same question
+
+    await act(async () => { registry.handlers().quiz_check(); });
+    await waitFor(() => expect(said()).toMatch(/^Not quite\./));
+    expect(said()).not.toContain(`The answer is`); // the right answer is not given away
+
+    const right = first.choices.findIndex((c) => c.id === first.correct_choice_id);
+    await act(async () => { registry.handlers().quiz_answer({ index: right + 1 }); });
+    await act(async () => { registry.handlers().quiz_check(); });
+    await waitFor(() => expect(said()).toMatch(/^Correct\./));
+
+    await act(async () => { registry.handlers().quiz_next(); });
+    await screen.findByRole("heading", { name: /^Question 2 of/ });
+    await waitFor(() => expect(said()).toMatch(new RegExp(`^Question 2 of ${total}\\.`)));
+    expect(said()).toContain(second.prompt);
+
+    await act(async () => { registry.handlers().quiz_review(); });
+    await waitFor(() => expect(said()).toMatch(new RegExp(`^Review\\. You answered 1 of ${total}\\..*Say submit my answers to finish\\.$`)));
+    await store.close();
+  });
 });
