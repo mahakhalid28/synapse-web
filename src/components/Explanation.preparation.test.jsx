@@ -45,8 +45,26 @@ const h = vi.hoisted(() => {
     removeEventListener() {}
   }
 
-  return { players, getStatus, getPrepared, retry, points, FakePlayer, FakeAudio };
+  return { players, getStatus, getPrepared, retry, points, FakePlayer, FakeAudio,
+    streamEnabled: false, streamOptions: null, streamPlayer: null, streamRequests: [] };
 });
+
+vi.mock('../lib/ttsStream.js', () => ({
+  supportsAudioStreaming: () => h.streamEnabled,
+  streamSpeech: (path, _body, options) => {
+    h.streamOptions = options;
+    return new Promise((_resolve, reject) => h.streamRequests.push({ path, options, reject }));
+  },
+  createStreamAudio: async () => {
+    const audio = new h.FakeAudio('stream');
+    audio.streaming = true;
+    audio.push = vi.fn(async () => {});
+    audio.finish = vi.fn();
+    audio.dispose = vi.fn();
+    h.streamPlayer = audio;
+    return audio;
+  },
+}));
 
 const status = (state, id = "p1", timestamp = id === "p1" ? 10 : 50) => ({
   intervention_id: id,
@@ -78,6 +96,8 @@ vi.mock("../api", () => ({
   retryExplanationPreparation: (...args) => h.retry(...args),
   getExplanation: vi.fn(),
   getTTSExplanation: vi.fn(),
+  toBackendExplanationMode: (mode) => mode === 'standard' ? 'explanatory' : mode,
+  parseTextExplanation: (text, pointId) => ({ pointId, subtitle: '', paragraphs: [text], keyInsight: '' }),
 }));
 vi.mock("./VoiceNotes", () => ({ default: () => <div data-testid="voice-notes" /> }));
 
@@ -117,6 +137,9 @@ beforeEach(() => {
   h.getStatus.mockReset();
   h.getPrepared.mockReset();
   h.retry.mockReset();
+  h.streamEnabled = false;
+  h.streamOptions = h.streamPlayer = null;
+  h.streamRequests.length = 0;
   h.getPrepared.mockImplementation(async (id) => readyBundle(id));
   vi.stubGlobal("Audio", h.FakeAudio);
 });
@@ -127,6 +150,205 @@ afterEach(() => {
 });
 
 describe("P3 explanation preparation playback", () => {
+  it.each(['before start', 'before PCM', 'after PCM'])('retains early text through speech failure %s, failed polling, and retry', async (stage) => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('pending'), status('pending', 'p2')] });
+    renderExplanation();
+    await settle(200);
+    const stream = h.streamRequests.find((request) => request.path.startsWith('/video/'));
+    await act(async () => stream.options.onEvent({ type: 'text_ready', text: 'Valid text despite speech failure.' }));
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('pending', 'p2')] });
+    await settle(700);
+    expect(screen.getByText('Valid text despite speech failure.')).toBeTruthy();
+    await act(async () => {
+      if (stage !== 'before start') {
+        await stream.options.onEvent({ type: 'start', text: 'Valid text despite speech failure.' });
+      }
+      if (stage === 'after PCM') await stream.options.onEvent({ type: 'audio', samples: new Float32Array(100) });
+      stream.reject(new Error('Speech interrupted.'));
+    });
+    expect(screen.getByText('Valid text despite speech failure.')).toBeTruthy();
+    if (stage !== 'before start') expect(h.streamPlayer.dispose).toHaveBeenCalled();
+    h.getStatus.mockResolvedValue({ items: [status('failed'), status('pending', 'p2')] });
+    await settle(2000);
+    expect(screen.getByText('Valid text despite speech failure.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry explanation' }).disabled).toBe(false);
+    expect(h.retry).not.toHaveBeenCalled();
+    expect(h.getPrepared).not.toHaveBeenCalled();
+
+    h.retry.mockResolvedValue(status('pending'));
+    h.getStatus.mockResolvedValue({ items: [status('pending'), status('pending', 'p2')] });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry explanation' }));
+    await settle(100);
+    expect(h.retry).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Valid text despite speech failure.')).toBeTruthy();
+    const retry = h.streamRequests.filter((request) => request.path.startsWith('/video/')).at(-1);
+    expect(retry).not.toBe(stream);
+    await act(async () => retry.options.onEvent({ type: 'text_ready', text: 'New attempt text.' }));
+    expect(screen.queryByText('Valid text despite speech failure.')).toBeNull();
+    expect(screen.getByText('New attempt text.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Moment 2.*Second graph/i }));
+    await settle(100);
+    expect(screen.queryByText('New attempt text.')).toBeNull();
+  });
+  it('clears retained text on account change even after failed polling stops the stream', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('pending', 'p2')] });
+    renderExplanation();
+    await settle(200);
+    const stream = h.streamOptions;
+    await act(async () => stream.onEvent({ type: 'text_ready', text: 'Retained private text.' }));
+    h.getStatus.mockResolvedValue({ items: [status('failed'), status('pending', 'p2')] });
+    await settle(700);
+    expect(stream.signal.aborted).toBe(true);
+    expect(screen.getByText('Retained private text.')).toBeTruthy();
+    act(() => window.dispatchEvent(new Event('synapse-account-changed')));
+    await act(async () => stream.onEvent({ type: 'text_ready', text: 'Late account text.' }));
+    expect(screen.queryByText('Retained private text.')).toBeNull();
+    expect(screen.queryByText('Late account text.')).toBeNull();
+  });
+  it('releases a failed live player so ready polling can load the durable fallback', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('pending', 'p2')] });
+    renderExplanation();
+    await settle(200);
+    const stream = h.streamRequests.find((request) => request.path.startsWith('/video/'));
+    await act(async () => {
+      await stream.options.onEvent({ type: 'text_ready', text: 'Early fallback text.' });
+      await stream.options.onEvent({ type: 'start', text: 'Early fallback text.' });
+      await stream.options.onEvent({ type: 'audio', samples: new Float32Array(100) });
+      stream.reject(new Error('Speech interrupted.'));
+    });
+    h.getStatus.mockResolvedValue({ items: [status('ready'), status('pending', 'p2')] });
+    await settle(700);
+    expect(h.getPrepared).toHaveBeenCalledWith('p1', 'standard', 'aircAruvnKk', expect.any(Object));
+    expect(screen.getByText('p1 prepared explanation text.')).toBeTruthy();
+  });
+  it('shows early text without a player and waits for PCM before offering Listen', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('pending', 'p2')] });
+    renderExplanation();
+    await settle(200);
+    const stream = h.streamOptions;
+    await act(async () => {
+      await stream.onEvent({ type: 'text_ready', generation_id: 'one', text: 'Early readable explanation.' });
+    });
+    expect(screen.getByText('Early readable explanation.')).toBeTruthy();
+    expect(h.streamPlayer).toBeNull();
+    expect(h.FakeAudio.instances).toHaveLength(0);
+    expect(h.getPrepared).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await stream.onEvent({ type: 'start', text: 'Early readable explanation.' });
+    });
+    const player = h.players[0];
+    player.state = 1;
+    player.time = 10.1;
+    await settle(350);
+    expect(screen.getByRole('button', { name: 'Wait here' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Listen' })).toBeNull();
+    expect(h.streamPlayer.play).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Wait here' }));
+    await settle(100);
+    expect(h.streamPlayer.play).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await stream.onEvent({ type: 'audio', samples: new Float32Array(100) });
+    });
+    await settle(100);
+    expect(h.streamPlayer.play).toHaveBeenCalledTimes(1);
+  });
+  it('discards early text callbacks after navigation or account changes', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('generating', 'p2')] });
+    const view = renderExplanation();
+    await settle(200);
+    const first = h.streamOptions;
+    await act(async () => first.onEvent({ type: 'text_ready', text: 'First private text.' }));
+    fireEvent.click(screen.getByRole('button', { name: /Moment 2.*Second graph/i }));
+    await settle(100);
+    expect(first.signal.aborted).toBe(true);
+    await act(async () => first.onEvent({ type: 'text_ready', text: 'Stale first text.' }));
+    expect(screen.queryByText('First private text.')).toBeNull();
+    expect(screen.queryByText('Stale first text.')).toBeNull();
+    const second = h.streamOptions;
+    await act(async () => second.onEvent({ type: 'text_ready', text: 'Second private text.' }));
+    act(() => window.dispatchEvent(new Event('synapse-account-changed')));
+    await act(async () => second.onEvent({ type: 'text_ready', text: 'Stale account text.' }));
+    expect(second.signal.aborted).toBe(true);
+    expect(screen.queryByText('Second private text.')).toBeNull();
+    expect(screen.queryByText('Stale account text.')).toBeNull();
+    expect(h.streamPlayer).toBeNull();
+    view.unmount();
+  });
+  it('resets PCM readiness when navigating to another moment', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('generating', 'p2')] });
+    renderExplanation();
+    await settle(200);
+    const first = h.streamOptions;
+    await act(async () => {
+      await first.onEvent({ type: 'start', text: 'First stream.' });
+      await first.onEvent({ type: 'audio', samples: new Float32Array(100) });
+    });
+    const firstPlayer = h.streamPlayer;
+    fireEvent.click(screen.getByRole('button', { name: /Moment 2.*Second graph/i }));
+    await settle(100);
+    const second = h.streamOptions;
+    expect(first.signal.aborted).toBe(true);
+    expect(firstPlayer.dispose).toHaveBeenCalled();
+    await act(async () => {
+      await second.onEvent({ type: 'start', text: 'Second stream without PCM.' });
+      await first.onEvent({ type: 'audio', samples: new Float32Array(100) });
+    });
+    const secondPlayer = h.streamPlayer;
+    fireEvent.click(screen.getByRole('button', { name: 'Wait here' }));
+    await settle(100);
+    expect(secondPlayer.play).not.toHaveBeenCalled();
+    await act(async () => second.onEvent({ type: 'audio', samples: new Float32Array(100) }));
+    await settle(100);
+    expect(secondPlayer.play).toHaveBeenCalledTimes(1);
+  });
+  it('allows live listening while durable status is generating and keeps the same player at completion', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('pending', 'p2')] });
+    const view = renderExplanation();
+    await settle(200);
+    expect(h.streamOptions).toBeTruthy();
+    await act(async () => {
+      await h.streamOptions.onEvent({ type: 'start', text: 'Live spoken explanation.' });
+      await h.streamOptions.onEvent({ type: 'audio', samples: new Float32Array(100) });
+    });
+    expect(screen.getByText('Live spoken explanation.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Listen to explanation audio' }).hasAttribute('aria-disabled')).toBe(false);
+    expect(h.streamPlayer.play).not.toHaveBeenCalled();
+    expect(h.getPrepared).not.toHaveBeenCalled();
+    const stream = h.streamPlayer;
+    await act(async () => { await h.streamOptions.onEvent({ type: 'complete' }); });
+    expect(stream.finish).toHaveBeenCalledOnce();
+    h.getStatus.mockResolvedValue({ items: [status('ready'), status('pending', 'p2')] });
+    await settle(700);
+    expect(stream.dispose).not.toHaveBeenCalled();
+    expect(h.FakeAudio.instances.filter((audio) => audio.url === 'blob:p1')).toHaveLength(0);
+    view.unmount();
+    expect(stream.dispose).toHaveBeenCalled();
+    expect(h.streamOptions.signal.aborted).toBe(true);
+  });
+  it('disposes buffered speech immediately on an account change', async () => {
+    h.streamEnabled = true;
+    h.getStatus.mockResolvedValue({ items: [status('generating'), status('pending', 'p2')] });
+    const view = renderExplanation();
+    await settle(200);
+    await act(async () => {
+      await h.streamOptions.onEvent({ type: 'start', text: 'Private streamed speech.' });
+      await h.streamOptions.onEvent({ type: 'audio', samples: new Float32Array(100) });
+    });
+    const player = h.streamPlayer;
+    act(() => window.dispatchEvent(new Event('synapse-account-changed')));
+    expect(player.dispose).toHaveBeenCalled();
+    expect(h.streamOptions.signal.aborted).toBe(true);
+    view.unmount();
+  });
   it("presents an accessible question and focuses its heading without autoplay", async () => {
     h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
     renderExplanation();

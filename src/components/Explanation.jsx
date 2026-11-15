@@ -11,6 +11,8 @@ import {
   retryExplanationPreparation,
 } from "../api";
 import { API_MOCK_MODE } from "../lib/apiConfig";
+import { createStreamAudio, streamSpeech, supportsAudioStreaming } from '../lib/ttsStream.js';
+import { toBackendExplanationMode, parseTextExplanation } from '../api';
 import { bookmarkSaved, getSaved, getSavedLecture, loadSavedAudio, normalMode, personalRequest, preserveExplanation, trackLecture } from "../lib/personalApi";
 import { captureAccount, assertAccount, currentAccount } from "../lib/accountSession";
 import {
@@ -303,6 +305,13 @@ export default function Explanation({
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioUrl, setAudioUrl] = useState(null);
+  const [streamAudio, setStreamAudio] = useState(null);
+  const [streamReadyKey, setStreamReadyKey] = useState(null);
+  const streamReady = Boolean(streamAudio) && streamReadyKey === `${videoId}::${effectiveActivePointId}::${mode}`;
+  const liveStreamKey = useRef(null);
+  const earlyStreamText = useRef(null);
+  const streamAudioRef = useRef(null);
+  const playbackSource = streamAudio || audioUrl;
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState(null);
   const [audioExportError, setAudioExportError] = useState(null);
@@ -425,6 +434,7 @@ export default function Explanation({
       return [...current.filter((item) => item.id !== previousId), point];
     }),
     prepared: async (item, signal) => {
+      if (liveStreamKey.current === `${videoId}::${item.point.id}::${mode}`) return;
       const saved = await getSaved(item.saved_explanation_id, { signal });
       if (!signal?.aborted) setRequestedSaved((current) => new Map(current).set(
         `${item.point.id}::${normalMode(item.output_mode)}`, saved));
@@ -433,7 +443,8 @@ export default function Explanation({
     hasSavedVersion: (id, depth) => savedItems.some((item) => item.pointId === id && normalMode(item.mode) === normalMode(depth)),
     questionHeading: conversationHeadingRef,
     videoId, session, points: allPoints, processing: isProcessing,
-    depth: mode, defaultDepth: initialMode, activePointId: effectiveActivePointId, audioUrl,
+    depth: mode, defaultDepth: initialMode, activePointId: effectiveActivePointId, audioUrl: playbackSource,
+    streamReady,
     preparations: readOnly ? new Map(allPoints.map((point) => [point.id, { status: savedItems.some((item) => item.pointId === point.id && normalMode(item.mode) === normalMode(mode)) ? "ready" : "cancelled", retryable: false }])) : preparationContext === preparationContextKey ? preparationById : null,
     preparationPhase: effectivePreparationPhase,
     lectureState: playerState, announce, audioError, explanationLoadError,
@@ -798,10 +809,127 @@ export default function Explanation({
     effectiveActivePointId,
   ]);
 
+  // Text outlives a failed speech attempt, but never the selected context or account.
+  useEffect(() => {
+    const clearAccountText = () => {
+      if (!earlyStreamText.current) return;
+      earlyStreamText.current = null;
+      setExplanation(null);
+    };
+    window.addEventListener('synapse-account-changed', clearAccountText);
+    return () => {
+      earlyStreamText.current = null;
+      window.removeEventListener('synapse-account-changed', clearAccountText);
+    };
+  }, [videoId, effectiveActivePointId, mode, readOnly]);
+
+  const streamEligible = !API_MOCK_MODE && !readOnly && (!requestedVersion || Boolean(streamAudio)) &&
+    activePreparation?.requested !== false &&
+    ['pending', 'generating', 'ready'].includes(activePreparation?.status);
+  useEffect(() => {
+    if (!streamEligible || !effectiveActivePointId || !supportsAudioStreaming()) return;
+    const key = `${videoId}::${effectiveActivePointId}::${mode}`;
+    const controller = new AbortController();
+    const account = captureAccount();
+    let player = null;
+    let finished = false;
+    const abortAccount = () => {
+      controller.abort();
+      player?.dispose();
+      streamAudioRef.current = null;
+      liveStreamKey.current = null;
+      setStreamAudio(null);
+      setStreamReadyKey(null);
+      setExplanation(null);
+      setAudioUrl(null);
+      setIsPlaying(false);
+    };
+    window.addEventListener('synapse-account-changed', abortAccount);
+    streamSpeech('/video/intervention/explain/stream', {
+      video_id: videoId, intervention_id: effectiveActivePointId,
+      output_mode: toBackendExplanationMode(mode),
+    }, {
+      signal: controller.signal,
+      onEvent: async (event) => {
+        if (controller.signal.aborted) return;
+        if (event.type === 'text_ready') {
+          const text = parseTextExplanation(event.text, effectiveActivePointId);
+          earlyStreamText.current = { key, explanation: text };
+          setExplanation(text);
+        } else if (event.type === 'start') {
+          player = await createStreamAudio();
+          if (controller.signal.aborted) { player.dispose(); return; }
+          liveStreamKey.current = key;
+          streamAudioRef.current = player;
+          player.playbackRate = playbackRateRef.current;
+          setAudioUrl(null);
+          setStreamAudio(player);
+          setAudioError(null);
+          setAudioDuration(0);
+          const text = parseTextExplanation(event.text, effectiveActivePointId);
+          earlyStreamText.current = { key, explanation: text };
+          setExplanation(text);
+        } else if (event.type === 'audio') {
+          await player.push(event.samples);
+          if (!controller.signal.aborted) {
+            setStreamReadyKey(key);
+            setAudioLoading(false);
+          }
+        } else if (event.type === 'complete' && player) {
+          // Completion is sent only after the durable ready commit. Keep the
+          // live player until it drains; retain the MP3 for replay/export.
+          const { audio, explanation: preparedText } = await getPreparedExplanation(
+            effectiveActivePointId, mode, videoId, { signal: controller.signal });
+          assertAccount(account);
+          if (controller.signal.aborted) {
+            if (audio.audio_file_path?.startsWith('blob:')) URL.revokeObjectURL?.(audio.audio_file_path);
+            return;
+          }
+          setExplanation(preparedText);
+          setAudioUrl(audio.audio_file_path);
+          setAudioLoading(false);
+          if (audio.explanation_id) {
+            preserveExplanation(audio.explanation_id, { account }).then((saved) => {
+              if (controller.signal.aborted) return;
+              setSavedCurrent(saved);
+              setBookmarked(saved.bookmarked);
+              setStorageError(null);
+            }).catch((error) => { if (!controller.signal.aborted) setStorageError(error.message); });
+          }
+          finished = true;
+          player.finish();
+        }
+      },
+    }).catch((error) => {
+      if (controller.signal.aborted) return;
+      if (liveStreamKey.current === key) liveStreamKey.current = null;
+      if (player) {
+        player.dispose();
+        streamAudioRef.current = null;
+        setStreamAudio(null);
+        setStreamReadyKey(null);
+        setIsPlaying(false);
+        setAudioError(error.message);
+        conversationRef.current?.playbackError();
+      }
+      // Without a published sample, the existing polling/file path still works.
+    });
+    return () => {
+      controller.abort();
+      window.removeEventListener('synapse-account-changed', abortAccount);
+      player?.dispose();
+      if (streamAudioRef.current === player) streamAudioRef.current = null;
+      if (liveStreamKey.current === key) liveStreamKey.current = null;
+      if (!finished || player) setStreamAudio(null);
+      setStreamReadyKey(null);
+    };
+  }, [streamEligible, effectiveActivePointId, mode, videoId]);
+
   // Load only explanations P2 reports ready. In real mode the read-only GET
   // endpoint is used, so waiting never starts duplicate generation.
   useEffect(() => {
     if (!effectiveActivePointId) return;
+    if (liveStreamKey.current === `${videoId}::${effectiveActivePointId}::${mode}`) return;
     // Guards the two async calls below against a slower response for a
     // point the learner has already navigated away from landing after a
     // newer one and silently overwriting it with stale content — same
@@ -812,8 +940,10 @@ export default function Explanation({
     let cancelled = false;
     const account = captureAccount();
     const controller = new AbortController();
-    /* eslint-disable react-hooks/set-state-in-effect -- synchronize the player reset and loading state before starting its external media request */
-    if (!preloadedExpl.current) setExplanation(null);
+    const retainedText = earlyStreamText.current?.key === `${videoId}::${effectiveActivePointId}::${mode}`
+      ? earlyStreamText.current.explanation : null;
+    // Reset the player before starting its external media request; retain valid text.
+    if (!preloadedExpl.current) setExplanation(retainedText);
     setCurrentTime(0);
     setIsPlaying(false);
     setAudioUrl(null);
@@ -851,7 +981,7 @@ export default function Explanation({
     }
 
     if (!API_MOCK_MODE && activePreparation?.status !== "ready") {
-      setExplanation(null);
+      setExplanation(retainedText);
       setAudioLoading(false);
       preloadedExpl.current = null;
       return () => controller.abort();
@@ -929,13 +1059,14 @@ export default function Explanation({
       controller.abort();
     };
   }, [effectiveActivePointId, mode, videoId, activePreparation?.status, readOnly, selectedSave, requestedVersion]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Wire up the HTML5 Audio element whenever the URL changes
   useEffect(() => {
-    if (!audioUrl) return;
+    if (!playbackSource) return;
 
-    const audio = new Audio(audioUrl);
+    const audio = typeof playbackSource === 'string' ? new Audio(playbackSource) : streamAudioRef.current;
+    if (!audio) return;
+    // eslint-disable-next-line react-hooks/immutability -- Audio and the worklet facade are external mutable media resources.
     audio.playbackRate = playbackRateRef.current;
     audioRef.current = audio;
 
@@ -961,6 +1092,11 @@ export default function Explanation({
           : new Set(prev).add(effectiveActivePointId),
       );
       if (!readOnly) conversationRef.current.ended(effectiveActivePointId, mode);
+      if (audio.streaming) {
+        streamAudioRef.current = null;
+        setStreamAudio(null);
+        setStreamReadyKey(null);
+      }
     };
 
     audio.addEventListener("timeupdate", onTimeUpdate);
@@ -971,14 +1107,15 @@ export default function Explanation({
 
     return () => {
       audio.pause();
-      if (!API_MOCK_MODE && audioUrl.startsWith("blob:")) URL.revokeObjectURL?.(audioUrl);
+      if (audio.streaming) audio.dispose();
+      else if (!API_MOCK_MODE && playbackSource.startsWith("blob:")) URL.revokeObjectURL?.(playbackSource);
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("error", onError);
       audio.removeEventListener("ended", onEnded);
       audioRef.current = null;
     };
-  }, [audioUrl, autoPlay, effectiveActivePointId, mode, videoId, readOnly]);
+  }, [playbackSource, autoPlay, effectiveActivePointId, mode, videoId, readOnly]);
 
   const libraryListeningStarted = useRef(false);
   useEffect(() => {
@@ -2539,14 +2676,14 @@ export default function Explanation({
                       ref={listenBtnRef}
                       aria-keyshortcuts="Alt+L"
                       onClick={togglePlay}
-                      aria-disabled={!audioUrl || undefined}
+                      aria-disabled={!playbackSource || undefined}
                       aria-label={
                         isPlaying
                           ? "Pause explanation audio"
                           : "Listen to explanation audio"
                       }
                       className={"w-11 h-11 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors focus-ring " +
-                        (!audioUrl ? "opacity-40 cursor-not-allowed" : "")
+                        (!playbackSource ? "opacity-40 cursor-not-allowed" : "")
                       }
                     >
                       {audioLoading ? (

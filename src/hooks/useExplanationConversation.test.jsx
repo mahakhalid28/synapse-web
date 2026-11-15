@@ -26,10 +26,10 @@ function setup(managed = false) {
   const media = { pause: vi.fn(), stop: vi.fn(), play: vi.fn(async () => {}), resume: vi.fn(), announce: vi.fn() };
   h.getStatus.mockImplementation(async (_video, depth) => ({ items: points.map((p) => ({ intervention_id: p.id, ...(session.statuses.get(`${p.id}::${depth}`) || { status: "pending" }) })) }));
   h.request.mockImplementation(async (_video, id, depth) => ({ status: session.statuses.get(`${id}::${depth}`)?.status || "pending" }));
-  const view = renderHook(({ lectureState = "paused", audioError = null } = {}) => {
+  const view = renderHook(({ lectureState = "paused", audioError = null, streamReady = false } = {}) => {
     const [selected, setSelected] = useState({ id: "p1", depth: "standard" });
     return useExplanationConversation({ videoId: "aircAruvnKk", session, points, processing: false, depth: selected.depth, activePointId: selected.id,
-      audioUrl: `blob:${selected.id}:${selected.depth}`, lectureState, audioError,
+      audioUrl: `blob:${selected.id}:${selected.depth}`, lectureState, audioError, streamReady,
       requestSessionId: managed ? "session-1" : null, prepared: async () => {},
       ...media, guarded: () => guard, playerState: () => 2, position: () => position,
       select: (id, depth) => setSelected((prev) => prev.id === id && prev.depth === depth ? prev : { id, depth }),
@@ -41,6 +41,17 @@ function setup(managed = false) {
 beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); });
 afterEach(() => vi.useRealTimers());
 describe("permission and satisfaction", () => {
+  it("offers playable streaming audio without announcing durable readiness", async () => {
+    const e = setup();
+    e.session.statuses.set("p1::standard", { status: "generating" });
+    e.rerender({ streamReady: true });
+    act(() => e.result.current.encounter(points[0]));
+    await tick();
+    expect(e.result.current.question.choices).toEqual(["listen", "skip"]);
+    expect(e.result.current.question.prompt).toContain("audio is available to stream");
+    expect(e.result.current.question.prompt).not.toContain("explanation is ready");
+    expect(e.media.play).not.toHaveBeenCalled();
+  });
   it("holds the lecture until listening and satisfaction are explicitly answered", async () => {
     const e = setup();
     act(() => e.result.current.encounter(points[0]));

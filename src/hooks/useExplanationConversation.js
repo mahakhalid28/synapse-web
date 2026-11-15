@@ -139,6 +139,7 @@ export function useExplanationConversation(options) {
     return `${point.title || point.category || "Moment"} at ${spokenTimestamp(point.timestamp)}`;
   }
   function status(point, depth) {
+    if (latest.current.streamReady && latest.current.activePointId === point.id && latest.current.depth === depth) return 'ready';
     return session.statuses.get(keyOf(point.id, depth))?.status || (API_MOCK_MODE ? "ready" : "pending");
   }
   function offer(point, depth = "standard", notification = false) {
@@ -146,8 +147,11 @@ export function useExplanationConversation(options) {
     latest.current.select(point.id, depth);
     const state = status(point, depth);
     if (state === "ready") {
+      const streaming = latest.current.streamReady && latest.current.activePointId === point.id &&
+        latest.current.depth === depth && session.statuses.get(keyOf(point.id, depth))?.status !== "ready";
+      const availability = streaming ? "audio is available to stream while it finishes saving" : "explanation is ready";
       ask("listen", point, depth,
-        `Lecture paused. ${name(point)}. The ${title(depth)} explanation is ready. ${notification ? "Would you like to listen now? Say listen or later to continue the lecture." : "Would you like to listen? Say listen or skip."}`,
+        `Lecture paused. ${name(point)}. The ${title(depth)} ${availability}. ${notification ? "Would you like to listen now? Say listen or later to continue the lecture." : "Would you like to listen? Say listen or skip."}`,
         notification ? ["listen", "later"] : ["listen", "skip"]);
     } else if (state === "failed" || state === "cancelled") {
       const item = session.statuses.get(keyOf(point.id, depth));
@@ -470,7 +474,7 @@ export function useExplanationConversation(options) {
       session.review = [...items.values()].sort((a, b) => spokenTimestamp(a.point.timestamp).localeCompare(spokenTimestamp(b.point.timestamp), undefined, { numeric: true }));
       reviewNext();
     }
-  }, [revision, options.preparations, options.audioUrl, options.audioError, options.explanationLoadError, options.activePointId, options.depth, options.lectureState, question, waiting]);
+  }, [revision, options.preparations, options.audioUrl, options.streamReady, options.audioError, options.explanationLoadError, options.activePointId, options.depth, options.lectureState, question, waiting]);
 
   return { question, waiting, isBlocked: () => blocked.current, encounter, answer, ended, resume, skip, playbackError,
     requestCurrent: (depth = "standard", context = {}) => {

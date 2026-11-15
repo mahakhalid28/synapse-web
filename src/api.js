@@ -1284,7 +1284,7 @@ export async function getExplanation(pointId, mode, videoId) {
 
 // Splits the raw text_explanation string into the { subtitle, paragraphs, keyInsight }
 // shape the Explanation component expects.
-function parseTextExplanation(text, pointId) {
+export function parseTextExplanation(text, pointId) {
   if (!text) {
     return { pointId, subtitle: "", paragraphs: [], keyInsight: "" };
   }
