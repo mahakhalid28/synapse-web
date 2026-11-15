@@ -82,6 +82,43 @@ describe("useLectureSearch hook", () => {
     expect(result.current.statusMessage).toBe("1 lecture found.");
   });
 
+  it("ranks short lectures first and shows six results per page with Next/Previous", async () => {
+    const found = Array.from({ length: 14 }, (_, i) => ({
+      videoId: `v${i + 1}`,
+      title: `Lecture ${i + 1}`,
+      channel: "Someone",
+      durationSeconds: i === 0 ? 3600 : 600, // the first YouTube result is a 1-hour lecture
+    }));
+    vi.spyOn(lectureSearchModule, "searchVideos").mockResolvedValueOnce(found);
+
+    const { result } = renderHook(() => useLectureSearch());
+    act(() => {
+      result.current.handleUrlChange({ target: { value: "calculus" } });
+    });
+    await act(async () => {
+      await result.current.handleSubmit();
+    });
+
+    expect(result.current.results).toHaveLength(14); // nothing dropped
+    expect(result.current.results.at(-1).videoId).toBe("v1"); // long one sorted last
+    expect(result.current.pageResults.map((r) => r.videoId)).toEqual(["v2", "v3", "v4", "v5", "v6", "v7"]);
+    expect(result.current.pagination).toMatchObject({ page: 1, totalPages: 3, total: 14, offset: 0 });
+    expect(result.current.statusMessage).toContain("14 lectures found. Showing results 1 to 6 of 14.");
+
+    act(() => result.current.pagination.onNext());
+    expect(result.current.pagination.page).toBe(2);
+    expect(result.current.pageResults[0].videoId).toBe("v8");
+    expect(result.current.statusMessage).toBe("Showing results 7 to 12 of 14.");
+
+    act(() => result.current.pagination.onNext());
+    act(() => result.current.pagination.onNext()); // already on the last page: no-op
+    expect(result.current.pagination.page).toBe(3);
+    expect(result.current.pageResults.map((r) => r.videoId)).toEqual(["v14", "v1"]);
+
+    act(() => result.current.pagination.onPrev());
+    expect(result.current.pagination.page).toBe(2);
+  });
+
   it("discards stale search responses when newer queries finish first", async () => {
     let resolveFirst;
     const firstPromise = new Promise((resolve) => {
