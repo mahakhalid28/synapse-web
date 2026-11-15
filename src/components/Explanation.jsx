@@ -28,6 +28,7 @@ import CategoryIcon from "./CategoryIcon";
 import AskLecture from "./AskLecture";
 import { formatTimestamp } from "../lib/askApi";
 import VoiceNotes from "./VoiceNotes";
+import { preparationCounts } from "../voice/preparationProgress";
 import {
   LECTURE_SHORTCUT_ROWS,
   LECTURE_SHORTCUTS_SPOKEN,
@@ -1798,6 +1799,10 @@ export default function Explanation({
         label: point.title || "Moment",
         position: index + 1,
       })),
+      // For spoken progress ("3 of 12 explanations ready"): counts over the explanations actually being
+      // prepared, and the processing stage the screen is showing.
+      preparationProgress: readOnly ? null : preparationCounts(preparationById),
+      processingMessage: isProcessing && !processingError ? (processingStatus?.message || null) : null,
     }),
   );
 

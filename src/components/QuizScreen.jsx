@@ -24,6 +24,7 @@ import QuizResults from "./QuizResults";
 import { useQuizSession } from "../hooks/useQuizSession.js";
 import * as defaultStore from "../lib/quizStore.js";
 import * as defaultApi from "../lib/quizApi.js";
+import { DEFAULT_QUESTION_COUNT } from "../lib/quizApi.js";
 import * as defaultPrefs from "../lib/displayPrefs.js";
 import { AI_NOTICE, choiceText } from "../lib/quizText.js";
 import { useVoiceActions } from "../voice/voiceActions";
@@ -76,7 +77,8 @@ function QuizScreenInner({
   const voiceHandlers = {};
   if (onBack && (phase === "setup" || phase === "results")) voiceHandlers.quiz_back = onBack;
   if (phase === "setup" && !session.gen.busy) {
-    voiceHandlers.quiz_start = () => session.generate({ mode: "practice", count: 5 });
+    // "start an assessment with eight questions": the spoken mode and count, else practice and the default count.
+    voiceHandlers.quiz_start = ({ mode = "practice", count = DEFAULT_QUESTION_COUNT } = {}) => session.generate({ mode, count });
   }
   if (phase === "quiz" && work) {
     const question = work.quiz.questions[work.currentIndex];

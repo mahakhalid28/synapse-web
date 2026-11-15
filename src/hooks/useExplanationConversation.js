@@ -3,6 +3,7 @@ import { getExplanationPreparationStatus, requestExplanationPreparation, retryEx
 import { API_MOCK_MODE } from "../lib/apiConfig";
 import { createSpeaker } from "../voice/voiceSpeech";
 import { useVoiceAudio } from "../voice/voiceAudio";
+import { answerHint } from "../voice/voiceMessages";
 import { listLectureRequests, requestLectureExplanation, retryLectureRequest, updateLectureRequest } from "../lib/lectureRequests";
 
 export const DEPTHS = ["brief", "standard", "detailed"];
@@ -412,7 +413,7 @@ export function useExplanationConversation(options) {
       if (![0, 2, -1, undefined].includes(latest.current.playerState())) { timer = setTimeout(speak, 250); return; }
       if (first) { latest.current.questionHeading?.current?.focus({ preventScroll: true }); first = false; }
       promptBusy.current = true;
-      await speaker.current.say(question.prompt + " Press Alt plus T to answer in English after the tone.");
+      await speaker.current.say(question.prompt + " " + answerHint());
       promptBusy.current = false;
       if (!cancelled) { timer = setTimeout(speak, delay); delay = 30000; }
     }

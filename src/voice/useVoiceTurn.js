@@ -22,6 +22,12 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const START_TONE_HZ = 880;
 const STOP_TONE_HZ = 587; // lower than the start tone, so the two are told apart by ear
 
+// Auto-listen: after Synapse asks something (a turn's outcome has followUp, or the lecture asks an explanation
+// question), the microphone opens again by itself. A silent automatic turn ends quietly, and at most this many
+// automatic turns follow one another, so an unanswered question never keeps the microphone open.
+export const AUTO_LISTEN_DELAY_MS = 300;
+export const MAX_AUTO_TURNS = 3;
+
 const MESSAGES = {
   noteBusy: "A voice note is being recorded. Stop it before using voice control.",
   notQuiet: "Voice control could not pause the lecture audio, so it did not start. Try again, or use headphones.",
@@ -42,6 +48,17 @@ export class VoiceTurnController {
     this.settled = Promise.resolve(); // resolves when the last restore has taken effect in the player
     this.opts = {};
     this.disposed = false;
+    this.carried = null; // { port, snapshot } kept from a turn that asked a follow-up question
+    this.autoTurns = 0; // automatic turns in a row
+    this.autoTimer = null;
+  }
+
+  /** Listen once more without a key press (after a question). Ignored unless idle and auto-listen is on. */
+  listenAgain() {
+    if (this.disposed || this.status !== TURN.IDLE || this.opts.autoListen?.() === false) return undefined;
+    if (this.autoTurns >= MAX_AUTO_TURNS) return undefined;
+    this.autoTurns += 1;
+    return this.begin({ auto: true });
   }
 
   /** Called after every render with the latest options. */
@@ -74,7 +91,10 @@ export class VoiceTurnController {
   /** The shortcut or a click: start, cancel while getting ready, or stop while listening. */
   toggle() {
     const event = toggleEvent(this.status);
-    if (event === "start") return this.begin();
+    if (event === "start") {
+      this.autoTurns = 0; // the learner pressed the key: a fresh conversation
+      return this.begin();
+    }
     if (event === "cancel") return this.cancel("cancelled");
     if (event === "stop") return this.endListening(this.run, "user");
     return undefined;
@@ -82,7 +102,10 @@ export class VoiceTurnController {
 
   /** Hold-to-talk start (Space on the focused button). */
   holdStart() {
-    if (this.status === TURN.IDLE) return this.begin({ hold: true });
+    if (this.status === TURN.IDLE) {
+      this.autoTurns = 0;
+      return this.begin({ hold: true });
+    }
     return undefined;
   }
 
@@ -96,6 +119,7 @@ export class VoiceTurnController {
 
   /** The control is going away: close the microphone and put things back. */
   dispose() {
+    clearTimeout(this.autoTimer);
     if (this.status !== TURN.IDLE) {
       this.run += 1;
       this.turn?.abort?.abort();
@@ -107,6 +131,8 @@ export class VoiceTurnController {
 
   /** A modal takes ownership: discard this turn without restoring any pre-turn playback. */
   interrupt() {
+    clearTimeout(this.autoTimer);
+    this.carried = null;
     this.run += 1;
     this.turn?.abort?.abort();
     this.turn?.capture?.cancel();
@@ -115,17 +141,22 @@ export class VoiceTurnController {
 
   // ── The turn ────────────────────────────────────────────────────────────
 
-  async begin({ hold = false } = {}) {
+  async begin({ hold = false, auto = false } = {}) {
+    clearTimeout(this.autoTimer);
     const { registry } = this.opts;
-    if (registry.getPort()?.stopNote?.()) return; // a note was recording: this press ended it
+    if (!auto && registry.getPort()?.stopNote?.()) return; // a note was recording: this press ended it
     if (registry.getPort()?.isNoteBusy()) {
-      this.say(MESSAGES.noteBusy);
+      if (!auto) this.say(MESSAGES.noteBusy);
       return;
     }
 
     this.opts.onStart?.(); // stop any spoken reply at once: the learner is talking again
     const run = ++this.run;
-    this.turn = { port: null, snapshot: null, hold, capture: null, guard: null, abort: new AbortController() };
+    // A follow-up keeps the first turn's picture of what was playing, so the lecture is put back as it was
+    // before the question, not as the question left it (paused).
+    const carried = this.carried; // also when the learner pressed the key just before the automatic turn
+    this.carried = null;
+    this.turn = { port: null, snapshot: null, hold, auto, carried, capture: null, guard: null, abort: new AbortController() };
     registry.setTurnActive(true);
     this.setStatus(TURN.PREPARING);
 
@@ -138,7 +169,7 @@ export class VoiceTurnController {
     // 1. pause everything and confirm it is quiet before the microphone opens
     const port = registry.getPort();
     this.turn.port = port;
-    this.turn.snapshot = port ? port.getSnapshot() : null;
+    this.turn.snapshot = carried && carried.port === port ? carried.snapshot : port ? port.getSnapshot() : null;
     port?.pause();
     const quiet = await this.waitUntilQuiet(port, run);
     if (run !== this.run) return;
@@ -224,6 +255,8 @@ export class VoiceTurnController {
     if (run !== this.run) return;
 
     if (result?.reason === "device_lost") return this.end(MESSAGES.deviceLost);
+    // Nobody answered an automatic turn: end quietly (the learner may simply have chosen not to answer).
+    if (this.turn?.auto && (result?.reason === "no_speech" || result?.heardSpeech === false)) return this.finish({});
     if (!result || result.durationMs < LIMITS.MIN_UTTERANCE_MS) return this.end(MESSAGES.tooShort);
     // Our own level meter can miss quiet speech, so "no speech heard" is only trusted once the clip itself
     // proves to be flat (below). Otherwise the recogniser, which is far better at this, decides.
@@ -240,6 +273,7 @@ export class VoiceTurnController {
         endedBy: result.reason,
         before: this.turn?.snapshot ?? null, // what was playing before the turn paused it
         signal: this.turn?.abort.signal,
+        auto: this.turn?.auto === true, // opened by Synapse after a question, not by a key press
       };
       if (run !== this.run) return;
       console.info("[voice] clip", { ms: Math.round(wav.durationMs), peak: +peak.toFixed(4), rms: +rms.toFixed(5), heardSpeech: result.heardSpeech, endedBy: result.reason });
@@ -250,6 +284,7 @@ export class VoiceTurnController {
         }
         return this.end(`${MESSAGES.heardNothing} The browser recorded silence from "${result.device || "the default microphone"}". Check that it is the right microphone and is not muted.`);
       }
+      if (this.turn) this.turn.answered = true;
       const outcome = (await this.opts.onUtterance?.(utterance)) || {};
       if (run !== this.run) return;
       this.finish(outcome);
@@ -288,6 +323,20 @@ export class VoiceTurnController {
     const { registry } = this.opts;
     const current = registry.getPort();
     const leftScreen = turn.port !== null && current !== turn.port;
+
+    // The reply asked a question: keep everything paused and listen again (the reply has been spoken by now).
+    const followUp = outcome.followUp && !leftScreen && !this.disposed && this.opts.autoListen?.() !== false &&
+      this.autoTurns < MAX_AUTO_TURNS;
+    if (followUp) {
+      this.carried = { port: turn.port, snapshot: turn.snapshot };
+      registry.setTurnActive(false);
+      this.turn = null;
+      this.setStatus(TURN.IDLE);
+      this.autoTimer = setTimeout(() => this.listenAgain(), AUTO_LISTEN_DELAY_MS);
+      return;
+    }
+    // Only unanswered automatic turns count towards the limit; an answer starts the count again.
+    if (!turn.auto || turn.answered) this.autoTurns = 0;
     const plan = decideRestore(turn.snapshot, { ...outcome, leftScreen: leftScreen || Boolean(outcome.leftScreen) });
     if (turn.port && plan.restoreOwner) {
       turn.port.restore(plan);
@@ -316,13 +365,13 @@ export class VoiceTurnController {
   }
 }
 
-export function useVoiceTurn({ onUtterance, announce, deps, onStart } = {}) {
+export function useVoiceTurn({ onUtterance, announce, deps, onStart, autoListen } = {}) {
   const registry = useVoiceAudio();
   const [status, setStatus] = useState(TURN.IDLE);
   const [ctl] = useState(() => new VoiceTurnController((next) => setStatus(next)));
 
   useEffect(() => {
-    ctl.configure({ registry, onUtterance, announce, deps, onStart });
+    ctl.configure({ registry, onUtterance, announce, deps, onStart, autoListen });
   });
   useEffect(() => () => ctl.dispose(), [ctl]);
 
@@ -333,5 +382,6 @@ export function useVoiceTurn({ onUtterance, announce, deps, onStart } = {}) {
     holdEnd: () => ctl.holdEnd(),
     cancel: () => ctl.cancel("cancelled"),
     interrupt: () => ctl.interrupt(),
+    listenAgain: () => ctl.listenAgain(),
   };
 }

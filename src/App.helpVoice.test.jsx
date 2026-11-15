@@ -56,6 +56,7 @@ beforeEach(() => {
   vi.stubEnv("VITE_VOICE_CONTROL_ENABLED", "1");
   localStorage.clear();
   localStorage.setItem("synapse_voice_feedback", "screenreader");
+  localStorage.setItem("synapse_voice_intros", "off"); // these tests count replies; screen intros are tested elsewhere
   h.captures.length = 0;
   h.transcribe.mockReset().mockResolvedValue({ text: "go to notes", language: "en" });
   h.interpret.mockReset().mockResolvedValue({

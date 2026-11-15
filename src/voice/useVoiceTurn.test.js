@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { VoiceTurnController } from "./useVoiceTurn";
+import { AUTO_LISTEN_DELAY_MS, MAX_AUTO_TURNS, VoiceTurnController } from "./useVoiceTurn";
 import { createVoiceAudioRegistry } from "./voiceAudio";
 import { LIMITS, TURN } from "./voiceTurn";
 
@@ -104,6 +104,77 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("auto-listen after a question", () => {
+  const nextTurn = () => vi.advanceTimersByTimeAsync(AUTO_LISTEN_DELAY_MS + 10);
+
+  it("listens again by itself without resuming the lecture in between, then restores what played before", async () => {
+    const port = makePort({ lecture: "playing" });
+    const onUtterance = vi.fn()
+      .mockResolvedValueOnce({ followUp: true }) // "Do you want to remove it? Say yes or no after the tone."
+      .mockResolvedValueOnce({}); // "yes"
+    const env = setup({ port, onUtterance });
+    await startListening(env);
+    await env.controller.toggle();
+    expect(port.restore).not.toHaveBeenCalled();
+    expect(env.controller.status).toBe(TURN.IDLE);
+
+    await nextTurn();
+    expect(env.controller.status).toBe(TURN.LISTENING);
+    expect(env.order.filter((step) => step === "tone:880")).toHaveLength(2); // the learner hears the start tone
+    await env.controller.toggle();
+    expect(onUtterance.mock.calls[1][0].auto).toBe(true);
+    expect(port.restore).toHaveBeenCalledTimes(1);
+    expect(port.restore).toHaveBeenCalledWith({ lecture: true, explanation: false, restoreOwner: true, pauseOwner: null });
+  });
+
+  it("ends an unanswered automatic turn quietly and still puts the lecture back", async () => {
+    const port = makePort({ lecture: "playing" });
+    const onUtterance = vi.fn().mockResolvedValueOnce({ followUp: true });
+    const env = setup({ port, onUtterance });
+    await startListening(env);
+    await env.controller.toggle();
+    await nextTurn();
+    await env.capture.opts.onAutoStop("no_speech");
+    expect(env.controller.status).toBe(TURN.IDLE);
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(env.announce).not.toHaveBeenCalled();
+    expect(port.restore).toHaveBeenCalledWith(expect.objectContaining({ lecture: true }));
+  });
+
+  it("does not listen again when the learner turned auto-listen off", async () => {
+    const port = makePort({ lecture: "playing" });
+    const env = setup({ port, onUtterance: vi.fn().mockResolvedValue({ followUp: true }) });
+    env.controller.configure({ ...env.controller.opts, autoListen: () => false });
+    await startListening(env);
+    await env.controller.toggle();
+    await nextTurn();
+    expect(env.controller.status).toBe(TURN.IDLE);
+    expect(port.restore).toHaveBeenCalledTimes(1);
+  });
+
+  it(`stops listening by itself after ${MAX_AUTO_TURNS} unanswered automatic turns in a row`, async () => {
+    const env = setup({ port: makePort() });
+    for (let i = 0; i < MAX_AUTO_TURNS; i++) {
+      await env.controller.listenAgain();
+      expect(env.controller.status).toBe(TURN.LISTENING);
+      await env.capture.opts.onAutoStop("no_speech");
+    }
+    await env.controller.listenAgain();
+    expect(env.controller.status).toBe(TURN.IDLE);
+    await startListening(env); // a key press always works, and starts the count again
+  });
+
+  it("never listens by itself after Help (or another modal) takes over", async () => {
+    const env = setup({ port: makePort({ lecture: "playing" }), onUtterance: vi.fn().mockResolvedValueOnce({ followUp: true }) });
+    await startListening(env);
+    await env.controller.toggle();
+    env.controller.interrupt();
+    await nextTurn();
+    expect(env.controller.status).toBe(TURN.IDLE);
+    expect(env.deps.createCapture).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("a normal turn", () => {
