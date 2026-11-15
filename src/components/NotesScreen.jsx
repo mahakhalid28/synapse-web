@@ -89,14 +89,13 @@ export default function NotesScreen({
   );
 
   return (
-    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+    <div className="ds-app-shell w-full bg-background font-sans">
       <nav aria-label="Main navigation">
         <Sidebar active="notes" onNavigate={onNavigate} />
       </nav>
 
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
-        <div className="max-w-[700px] px-12 py-12">
-          <div aria-hidden="true" className="text-[14px] font-medium text-text-secondary mb-3">Voice notes</div>
+        <div className="ds-content w-full max-w-[880px] mx-auto">
           <h1
             ref={h1Ref}
             tabIndex={-1}

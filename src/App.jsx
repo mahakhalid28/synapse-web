@@ -844,7 +844,7 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
             : null
         }
       />
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {cleanupFailure && <div role="alert" className="p-4 bg-surface border border-border-subtle">
           {cleanupFailure.operation === "stop" ? "Unfinished work for the previous lecture could not be stopped."
             : cleanupFailure.operation === "session" ? "Reconnect this lecture to request explanations. You can also say retry explanation."

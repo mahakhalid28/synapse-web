@@ -153,7 +153,7 @@ export default function Timeline({
 
   if (!data) {
     return (
-      <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+      <div className="ds-app-shell w-full bg-background font-sans">
         <nav aria-label="Main navigation">
           <Sidebar active="home" onNavigate={onNavigate} />
         </nav>
@@ -165,9 +165,10 @@ export default function Timeline({
           <div
             role={loadError ? "alert" : "status"}
             aria-live="polite"
-            className="text-text-secondary text-[14px]"
+            className="ds-card m-4 p-6 max-w-[480px] text-text-secondary text-[15px]"
           >
             {loadError || "Loading…"}
+            {loadError && <button type="button" className="ds-btn-secondary mt-4" onClick={() => onNavigate("home")}>Back to Home</button>}
           </div>
         </main>
       </div>
@@ -207,197 +208,194 @@ export default function Timeline({
     (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null);
 
   return (
-    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+    <div className="ds-app-shell w-full bg-background font-sans">
       <nav aria-label="Main navigation">
         <Sidebar active="home" onNavigate={onNavigate} />
       </nav>
 
-      {/* ── Left pane ─────────────────────────────────────────────────────── */}
-      <main
-        id="main-content"
-        tabIndex={-1}
-        aria-label="Lecture timeline"
-        className="flex-1 min-w-0 overflow-y-auto border-r border-border-subtle outline-none"
-      >
-        <div className="px-10 py-10">
-          {data.metadataError && (
-            <div
-              role="alert"
-              className="mb-6 px-4 py-3 bg-surface border border-border-subtle rounded-radius-md text-[14px] text-text-secondary"
-            >
-              {data.metadataError} The saved timeline and playback remain available.
+      <div className="ds-workbench">
+        {/* ── Left pane ─────────────────────────────────────────────────────── */}
+        <main
+          id="main-content"
+          tabIndex={-1}
+          aria-label="Lecture timeline"
+          className="flex-1 min-w-0 overflow-y-auto border-r border-border-subtle outline-none"
+        >
+          <div className="ds-content">
+            {data.metadataError && (
+              <div
+                role="alert"
+                className="mb-6 px-4 py-3 bg-surface border border-border-subtle rounded-radius-md text-[14px] text-text-secondary"
+              >
+                {data.metadataError} The saved timeline and playback remain available.
+              </div>
+            )}
+
+            {/* Breadcrumb */}
+            <div className="text-[14px] font-medium text-text-secondary mb-7">
+              Home
+              <span aria-hidden="true" className="mx-2 text-text-muted">›</span>
+              <span className="text-text-primary">{data.videoTitle}</span>
             </div>
-          )}
 
-          {/* Breadcrumb */}
-          <div className="text-[14px] font-medium text-text-secondary mb-7">
-            Home
-            <span aria-hidden="true" className="mx-2 text-text-muted">›</span>
-            <span className="text-text-primary">{data.videoTitle}</span>
-          </div>
-
-          {/* ── Compact video header ── */}
-          <div className="flex gap-6 items-start mb-9 pb-8 border-b border-border-subtle">
-            {/* Small thumbnail */}
-            <div className="w-[180px] shrink-0 aspect-video rounded-radius-md overflow-hidden relative bg-gradient-to-br from-[#3B4870] to-[#8B6B4A]">
-              {thumbnailUrl && (
-                <img
-                  src={thumbnailUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  onError={(e) => (e.currentTarget.style.display = "none")}
-                />
-              )}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-8 h-8 rounded-full bg-surface/85 flex items-center justify-center">
-                  <span aria-hidden="true" className="text-text-primary text-[11px] ml-0.5">▶</span>
+            {/* ── Compact video header ── */}
+            <div className="flex flex-col sm:flex-row gap-5 items-start mb-7 pb-6 border-b border-border-subtle">
+              {/* Small thumbnail */}
+              <div className="w-[180px] shrink-0 aspect-video rounded-radius-md overflow-hidden relative bg-gradient-to-br from-[#3B4870] to-[#8B6B4A]">
+                {thumbnailUrl && (
+                  <img
+                    src={thumbnailUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    onError={(e) => (e.currentTarget.style.display = "none")}
+                  />
+                )}
+                <div className="absolute bottom-1.5 right-1.5 font-mono text-[14px] tabular-nums bg-black/75 text-white px-2 py-0.5 rounded-sm">
+                  {data.duration}
                 </div>
               </div>
-              <div className="absolute bottom-1.5 right-1.5 font-mono text-[14px] tabular-nums bg-black/75 text-white px-2 py-0.5 rounded-sm">
-                {data.duration}
-              </div>
-            </div>
 
-            {/* Title + meta + stats */}
-            <div className="flex-1 min-w-0">
-              <h1
-                ref={h1Ref}
-                tabIndex={-1}
-                className="text-[22px] font-semibold text-text-primary leading-snug mb-1 truncate outline-none"
-              >
-                {data.videoTitle}
-              </h1>
-              <div className="text-[14px] text-text-muted mb-5">
-                {data.author}
-              </div>
+              {/* Title + meta + stats */}
+              <div className="flex-1 min-w-0">
+                <h1
+                  ref={h1Ref}
+                  tabIndex={-1}
+                  className="text-[22px] font-semibold text-text-primary leading-snug mb-1 break-words outline-none rounded-radius-sm focus-ring"
+                >
+                  {data.videoTitle}
+                </h1>
+                <div className="text-[14px] text-text-muted mb-5">
+                  {data.author}
+                </div>
 
-              {/* Stat pills — neutral (icon + text), never color-coded by
-              category; "All" has no icon since it isn't a category. Hidden
-              from screen readers: the filter buttons below carry the same
-              counts, so reading both was pure repetition. */}
-              <div aria-hidden="true" className="flex flex-wrap gap-2">
-                <span className="ds-chip">
-                  <span className="text-text-secondary">{counts.all}<span className="sr-only"> </span></span>
-                  <span className="text-text-muted">All</span>
-                  <span className="sr-only">,</span>
-                </span>
-                {categories.map((cat) => (
-                  <span key={cat} className="ds-chip">
-                    <CategoryIcon category={cat} className="text-text-muted" />
-                    <span className="text-text-secondary">{counts[cat]}<span className="sr-only"> </span></span>
-                    <span className="text-text-muted">{capitalize(cat)}</span>
+                {/* Stat pills — neutral (icon + text), never color-coded by
+                category; "All" has no icon since it isn't a category. Hidden
+                from screen readers: the filter buttons below carry the same
+                counts, so reading both was pure repetition. */}
+                <div aria-hidden="true" className="flex flex-wrap gap-2">
+                  <span className="ds-chip">
+                    <span className="text-text-secondary">{counts.all}<span className="sr-only"> </span></span>
+                    <span className="text-text-muted">All</span>
                     <span className="sr-only">,</span>
                   </span>
-                ))}
+                  {categories.map((cat) => (
+                    <span key={cat} className="ds-chip">
+                      <CategoryIcon category={cat} className="text-text-muted" />
+                      <span className="text-text-secondary">{counts[cat]}<span className="sr-only"> </span></span>
+                      <span className="text-text-muted">{capitalize(cat)}</span>
+                      <span className="sr-only">,</span>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* ── Timeline ── */}
-          <div className="mb-6">
-            <div className="text-[14px] font-medium text-text-secondary mb-4">
-              Timeline of moments
-              <span className="sr-only">
-                {" "}
-                — a visual chart of the moments below; use the list for the same
-                information.
-              </span>
+            {/* ── Timeline ── */}
+            <div className="mb-6">
+              <div className="text-[14px] font-medium text-text-secondary mb-4">
+                Timeline of moments
+                <span className="sr-only">
+                  {" "}
+                  — a visual chart of the moments below; use the list for the same
+                  information.
+                </span>
+              </div>
+              <div
+                aria-hidden="true"
+                className="bg-surface border border-border-subtle rounded-radius-md p-6 pb-4"
+              >
+                <LaneTimeline
+                  totalSeconds={totalSeconds}
+                  categories={categories}
+                  pointsByCategory={pointsByCategory}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              </div>
             </div>
+
+            {/* ── Category filter ── */}
             <div
-              aria-hidden="true"
-              className="bg-surface border border-border-subtle rounded-radius-md p-6 pb-4"
+              role="group"
+              aria-label="Filter by category"
+              className="flex flex-wrap gap-2 mb-5"
             >
-              <LaneTimeline
-                totalSeconds={totalSeconds}
-                categories={categories}
-                pointsByCategory={pointsByCategory}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-              />
+              {[
+                { key: "all", label: "All", count: counts.all },
+                ...categories.map((cat) => ({
+                  key: cat,
+                  label: capitalize(cat),
+                  count: counts[cat],
+                })),
+              ].map((cat) => {
+                const active = activeCategory === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    aria-pressed={active}
+                    onClick={() => setActiveCategory(cat.key)}
+                    className={
+                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-radius-sm text-[14px] font-medium border transition-colors focus-ring " +
+                      (active
+                        ? "bg-accent text-on-accent font-semibold border-accent"
+                        : "bg-surface text-text-secondary border-border-strong hover:bg-surface-muted hover:text-text-primary")
+                    }
+                  >
+                    {cat.label}
+                    <span className={active ? "text-on-accent/80" : "text-text-muted"}>
+                      {cat.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div role="status" aria-live="polite" className="sr-only">
+              {selectionMessage}
+            </div>
+
+            {/* ── Point list — vertical ── */}
+            <div className="space-y-1.5">
+              {visiblePoints.map((point) => (
+                <PointRow
+                  key={point.id}
+                  point={point}
+                  isSelected={point.id === selectedId}
+                  onClick={() => {
+                    setSelectedId(point.id);
+                    setSelectionMessage(
+                      `Selected ${point.title}, ${point.category}, at ${point.timestamp}. Preview updated.`,
+                    );
+                  }}
+                />
+              ))}
             </div>
           </div>
+        </main>
 
-          {/* ── Category filter ── */}
-          <div
-            role="group"
-            aria-label="Filter by category"
-            className="flex flex-wrap gap-2 mb-5"
-          >
-            {[
-              { key: "all", label: "All", count: counts.all },
-              ...categories.map((cat) => ({
-                key: cat,
-                label: capitalize(cat),
-                count: counts[cat],
-              })),
-            ].map((cat) => {
-              const active = activeCategory === cat.key;
-              return (
-                <button
-                  key={cat.key}
-                  aria-pressed={active}
-                  onClick={() => setActiveCategory(cat.key)}
-                  className={
-                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-radius-sm text-[14px] font-medium border transition-colors focus-ring " +
-                    (active
-                      ? "bg-accent text-on-accent font-semibold border-accent"
-                      : "bg-surface text-text-secondary border-border-strong hover:bg-surface-muted hover:text-text-primary")
-                  }
-                >
-                  {cat.label}
-                  <span className={active ? "text-on-accent/80" : "text-text-muted"}>
-                    {cat.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div role="status" aria-live="polite" className="sr-only">
-            {selectionMessage}
-          </div>
-
-          {/* ── Point list — vertical ── */}
-          <div className="space-y-1.5">
-            {visiblePoints.map((point) => (
-              <PointRow
-                key={point.id}
-                point={point}
-                isSelected={point.id === selectedId}
-                onClick={() => {
-                  setSelectedId(point.id);
-                  setSelectionMessage(
-                    `Selected ${point.title}, ${point.category}, at ${point.timestamp}. Preview updated.`,
-                  );
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      </main>
-
-      {/* ── Right pane — preview ──────────────────────────────────────────── */}
-      <aside
-        aria-label="Point preview"
-        className="w-[300px] shrink-0 overflow-y-auto bg-surface-muted"
-      >
-        {selectedPoint ? (
-          <PreviewPanel
-            point={selectedPoint}
-            thumbnailUrl={thumbnailUrl}
-            onOpen={() => onOpenPoint(selectedPoint)}
-          />
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center px-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-surface flex items-center justify-center mb-4">
-              <span aria-hidden="true" className="text-text-muted text-sm">↑</span>
+        {/* ── Right pane — preview ──────────────────────────────────────────── */}
+        <aside
+          aria-label="Point preview"
+            className="shrink-0 bg-surface-muted"
+        >
+          {selectedPoint ? (
+            <PreviewPanel
+              point={selectedPoint}
+              thumbnailUrl={thumbnailUrl}
+              onOpen={() => onOpenPoint(selectedPoint)}
+            />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center px-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-surface flex items-center justify-center mb-4">
+                <span aria-hidden="true" className="text-text-muted text-sm">↑</span>
+              </div>
+              <p className="text-[14px] text-text-muted leading-relaxed">
+                Select a marker on the timeline or a point below to preview it here.
+              </p>
             </div>
-            <p className="text-[14px] text-text-muted leading-relaxed">
-              Select a marker on the timeline or a point below to preview it here.
-            </p>
-          </div>
-        )}
-      </aside>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

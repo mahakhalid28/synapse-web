@@ -25,6 +25,8 @@ function createWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 700,
+    icon: path.join(__dirname, isDev ? "public" : "dist", "assets", "brand", "app",
+      process.platform === "win32" ? "app-icon.ico" : "app-icon-256.png"),
     backgroundColor: "#F7F4EC",
     webPreferences: {
       contextIsolation: true,

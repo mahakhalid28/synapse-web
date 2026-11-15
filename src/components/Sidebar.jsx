@@ -31,7 +31,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
   return (
     <div className="ds-side w-[248px] h-full px-4 py-6 flex flex-col shrink-0 font-sans">
       {/* Wordmark block: decorative logo mark + the visible "Synapse" text. */}
-      <div className="flex items-center gap-3 px-2 pb-6">
+      <div className="ds-side-brand flex items-center gap-3 px-2 pb-6">
         <BrandMark size={38} />
         <div className="text-[21px] font-bold text-side-fg leading-none tracking-tight">
           Synapse
@@ -43,7 +43,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
         navigation">, so an inner, unlabeled <nav> here would register as a
         second, confusingly-identical navigation landmark nested inside the
         first for screen-reader users browsing by landmark. */}
-      <div className="mt-6 flex flex-col gap-0.5">
+      <div className="ds-side-links mt-6 flex flex-col gap-0.5">
         {items.map(({ key, label, Icon, count }) => {
           const isActive = key === active;
           return (
@@ -61,10 +61,10 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
                 className={"block w-1 h-5 rounded-full shrink-0 " + (isActive ? "bg-accent" : "bg-transparent")}
               />
               <Icon />
-              <span className="flex-1 text-left">{label}</span>{" "}
+              <span className="flex-1 min-w-0 break-words text-left">{label}</span>{" "}
               {count > 0 && (
                 <>
-                  <span aria-hidden="true" className="text-[14px] text-side-fg bg-side-recent px-2 py-0.5 rounded-radius-sm">
+                  <span aria-hidden="true" className="ds-side-count shrink-0 text-[14px] text-side-fg bg-side-recent px-2 py-0.5 rounded-radius-sm">
                     {count}
                   </span>
                   <span className="sr-only">, {count} saved</span>
@@ -76,7 +76,7 @@ export default function Sidebar({ active = "home", onNavigate = () => {} }) {
       </div>
 
       {/* Footer block — recently processed */}
-      <div className="mt-auto rounded-radius-md bg-side-recent px-4 py-3.5">
+      <div className="ds-side-recent mt-auto rounded-radius-md bg-side-recent px-4 py-3.5">
         <div className="text-[14px] font-semibold text-side-fg mb-1.5">Recently processed</div>
         {recentVideo ? (
           <div className="text-[14px] leading-snug">

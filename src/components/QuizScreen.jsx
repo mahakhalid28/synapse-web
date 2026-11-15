@@ -128,7 +128,7 @@ function QuizScreenInner({
     onOpenLecture({ videoId, jobId, startSeconds: Math.max(0, Math.floor(evidence.start_seconds)) });
 
   return (
-    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+    <div className="ds-app-shell w-full bg-background font-sans">
       <nav aria-label="Main navigation">
         <Sidebar active="" onNavigate={onNavigate} />
       </nav>

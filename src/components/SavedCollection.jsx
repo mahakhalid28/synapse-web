@@ -84,46 +84,50 @@ export default function SavedCollection({ kind, onNavigate, onOpen }) {
     confirmationRef: confirming?.id || null,
     items: phase === "ready" ? visible.map((item, index) => ({ ref: item.id, kind: kind === "library" ? "library_item" : "bookmark", label: `${item.videoTitle}: ${item.title}, ${item.mode}`, position: index + 1 })) : [] }));
   let previousVideo = null;
-  return <div className="flex h-full bg-background font-sans">
+  return <div className="ds-app-shell w-full bg-background font-sans">
     <nav aria-label="Main navigation"><Sidebar active={kind} onNavigate={onNavigate} /></nav>
-    <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-10">
-      <h1 ref={heading} tabIndex={-1} className="text-[32px] font-bold">{kind === "library" ? "My Library" : "Bookmarks"}</h1>
-      <p role="status" aria-live="polite">{phase === "loading" ? "Loading saved content…" : message || `${filtered.length} saved items. Page ${activePage + 1} of ${lastPage + 1}.`}</p>
-      <PersonalImport onImported={refresh} onStatus={setMessage} />
-      {kind === "library" && <div role="group" aria-label="Library view" className="flex gap-3 my-3">
-        <button className="ds-btn-secondary" aria-pressed={!recent} onClick={() => { setRecent(false); setPage(0); }}>Saved lectures</button>
-        <button className="ds-btn-secondary" aria-pressed={recent} onClick={() => { setRecent(true); setPage(0); }}>Recent explanations</button>
-      </div>}
-      <label className="block">Filter saved items<input className="ds-field w-full my-3" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
-      {phase === "error" && <button className="ds-btn-secondary" onClick={refresh}>Retry loading</button>}
-      {phase === "ready" && !visible.length && <p>No saved items match this view.</p>}
-      {phase === "ready" && visible.map((item, index) => {
-        const groupHeading = item.videoId !== previousVideo;
-        previousVideo = item.videoId;
-        return <div key={item.id}>
-          {groupHeading && <h2 className="text-[22px] font-semibold mt-5">{item.videoTitle}</h2>}
-          <article aria-label={`${index + 1}. ${item.title}`} className="border border-border-default rounded-radius-md p-4 my-3">
-            <h3 className="font-semibold">{index + 1}. {item.title}</h3>
-            <p>{item.timestamp} · {item.mode} depth</p>
-            {item.savedAt && <p>Saved {new Date(item.savedAt).toLocaleString()}</p>}
-            <div className="flex flex-wrap gap-3 mt-2">
-              <button className="ds-btn-secondary" aria-label={`${item.savedVersionId ? "Open and play explanation" : "Open lecture"}: ${item.title}, ${item.mode} depth, ${item.videoTitle}`} onClick={() => open(item)}>{item.savedVersionId ? "Open and play explanation" : "Open lecture"}</button>
-              {item.savedVersionId && <button className="ds-btn-secondary" aria-label={`Read text: ${item.title}, ${item.mode} depth, ${item.videoTitle}`} onClick={() => open(item, false)}>Read text</button>}
-              <button className="ds-btn-text" aria-label={kind === "library" ? `Remove lecture: ${item.videoTitle}` : `Remove bookmark: ${item.title}, ${item.mode} depth`} onClick={() => setConfirming(item)}>{kind === "library" ? "Remove lecture" : "Remove bookmark"}</button>
-            </div>
-          </article>
-        </div>;
-      })}
-      {confirming && <div role="group" aria-label="Confirm removal" className="p-4 border border-border-default">
-        <p>Remove {kind === "library" ? confirming.videoTitle : confirming.title}?</p>
-        <button ref={cancel} className="ds-btn-secondary" onClick={() => { setConfirming(null); heading.current?.focus(); }}>Cancel</button>
-        <button className="ds-btn-text" onClick={() => remove(confirming)}>Yes, remove</button>
-      </div>}
-      <nav aria-label="Saved items pages" className="flex gap-3 mt-5">
-        <button className="ds-btn-secondary" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Previous page</button>
-        <span>Page {activePage + 1} of {lastPage + 1}</span>
-        <button className="ds-btn-secondary" disabled={activePage === lastPage} onClick={() => setPage(activePage + 1)}>Next page</button>
-      </nav>
+    <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
+      <div className="ds-content w-full max-w-[880px] mx-auto">
+        <h1 ref={heading} tabIndex={-1} className="text-[32px] font-bold leading-tight text-text-primary mb-3 rounded-radius-sm focus-ring">{kind === "library" ? "My Library" : "Bookmarks"}</h1>
+        <p role="status" aria-live="polite" className="text-[15px] text-text-secondary mb-6">{phase === "loading" ? "Loading saved content…" : message || `${filtered.length} saved items. Page ${activePage + 1} of ${lastPage + 1}.`}</p>
+        <PersonalImport onImported={refresh} onStatus={setMessage} />
+        {kind === "library" && <div role="group" aria-label="Library view" className="flex flex-wrap gap-2 mb-5">
+          <button className={"ds-btn-secondary " + (!recent ? "bg-accent-soft border-accent text-accent" : "")} aria-pressed={!recent} onClick={() => { setRecent(false); setPage(0); }}>Saved lectures</button>
+          <button className={"ds-btn-secondary " + (recent ? "bg-accent-soft border-accent text-accent" : "")} aria-pressed={recent} onClick={() => { setRecent(true); setPage(0); }}>Recent explanations</button>
+        </div>}
+        <label className="block text-[15px] font-medium text-text-secondary mb-6">Filter saved items<input className="ds-field w-full mt-2 text-[16px] font-normal text-text-primary focus-ring" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
+        {phase === "error" && <button className="ds-btn-secondary" onClick={refresh}>Retry loading</button>}
+        {phase === "ready" && !visible.length && <p className="ds-card p-6 text-text-secondary">No saved items match this view.</p>}
+        {phase === "ready" && visible.map((item, index) => {
+          const groupHeading = item.videoId !== previousVideo;
+          previousVideo = item.videoId;
+          return <div key={item.id}>
+            {groupHeading && <h2 className="text-[22px] font-semibold leading-snug text-text-primary mt-8 mb-3 break-words">{item.videoTitle}</h2>}
+            <article aria-label={`${index + 1}. ${item.title}`} className="bg-surface border border-border-subtle rounded-radius-md p-5 my-3">
+              <h3 className="text-[17px] font-semibold text-text-primary break-words">{index + 1}. {item.title}</h3>
+              <p className="text-[14px] text-text-secondary mt-1">{item.timestamp} · {item.mode} depth</p>
+              {item.savedAt && <p className="text-[14px] text-text-muted mt-1">Saved {new Date(item.savedAt).toLocaleString()}</p>}
+              <div className="flex flex-wrap items-center gap-3 mt-4">
+                <button className="ds-btn-secondary" aria-label={`${item.savedVersionId ? "Open and play explanation" : "Open lecture"}: ${item.title}, ${item.mode} depth, ${item.videoTitle}`} onClick={() => open(item)}>{item.savedVersionId ? "Open and play explanation" : "Open lecture"}</button>
+                {item.savedVersionId && <button className="ds-btn-secondary" aria-label={`Read text: ${item.title}, ${item.mode} depth, ${item.videoTitle}`} onClick={() => open(item, false)}>Read text</button>}
+                <button className="ds-btn-text" aria-label={kind === "library" ? `Remove lecture: ${item.videoTitle}` : `Remove bookmark: ${item.title}, ${item.mode} depth`} onClick={() => setConfirming(item)}>{kind === "library" ? "Remove lecture" : "Remove bookmark"}</button>
+              </div>
+            </article>
+          </div>;
+        })}
+        {confirming && <div role="group" aria-label="Confirm removal" className="mt-6 p-5 bg-surface border border-border-strong rounded-radius-md">
+          <p className="mb-4 text-text-primary break-words">Remove {kind === "library" ? confirming.videoTitle : confirming.title}?</p>
+          <div className="flex flex-wrap gap-3">
+          <button ref={cancel} className="ds-btn-secondary" onClick={() => { setConfirming(null); heading.current?.focus(); }}>Cancel</button>
+          <button className="ds-btn-text" onClick={() => remove(confirming)}>Yes, remove</button>
+          </div>
+        </div>}
+        <nav aria-label="Saved items pages" className="flex flex-wrap items-center gap-3 mt-7 pt-5 border-t border-border-subtle">
+          <button className="ds-btn-secondary" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Previous page</button>
+          <span>Page {activePage + 1} of {lastPage + 1}</span>
+          <button className="ds-btn-secondary" disabled={activePage === lastPage} onClick={() => setPage(activePage + 1)}>Next page</button>
+        </nav>
+      </div>
     </main>
   </div>;
 }

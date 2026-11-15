@@ -140,7 +140,7 @@ export default function Home({
   };
 
   return (
-    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+    <div className="ds-app-shell w-full bg-background font-sans">
       <nav aria-label="Main navigation">
         <Sidebar active="home" onNavigate={onNavigate} />
       </nav>
@@ -151,7 +151,7 @@ export default function Home({
         aria-labelledby="page-title"
         className="flex-1 overflow-y-auto outline-none"
       >
-        <div className="w-full max-w-[880px] mx-auto px-10 py-14">
+        <div className="ds-content w-full max-w-[880px] mx-auto">
           {/* Empty on load; only ever holds a real, meaningful update. */}
           <div aria-live="polite" aria-atomic="true" className="sr-only">
             {statusMessage}
@@ -160,19 +160,19 @@ export default function Home({
           {/* Decorative header band (gradient). Text on it is white, >= 9:1 along
               the whole gradient; in forced-colors mode it becomes a plain
               bordered box. The heading and paragraph are unchanged. */}
-          <div className="mb-7 rounded-radius-lg bg-hero border border-border-subtle px-8 py-8">
+          <div className="mb-6 rounded-radius-lg bg-hero px-5 py-6 sm:px-7">
             <h1
               id="page-title"
               ref={h1Ref}
               tabIndex={-1}
-              className="text-[40px] font-bold tracking-tight text-hero-fg leading-tight mb-3 outline-none rounded-radius-sm focus-ring"
+              className="text-[28px] sm:text-[32px] font-bold tracking-tight text-hero-fg leading-tight mb-2 outline-none rounded-radius-sm focus-ring"
             >
               Start a study session
             </h1>
 
             {/* Plain text, read in order — tells a first-time visitor what
                 this app does before they have to find out by trial. */}
-            <p className="text-[17px] text-hero-sub leading-relaxed max-w-[660px]">
+            <p className="text-[16px] text-hero-sub leading-relaxed max-w-[660px]">
               Synapse plays a YouTube lecture and pauses at diagrams, equations
               and charts to explain them. Choose a lecture below to begin, or press
               Alt plus S at any time to jump to the search field.
@@ -183,14 +183,14 @@ export default function Home({
             <button
               type="button"
               onClick={resumeContinueLecture}
-              className="ds-row mb-8 hover:border-accent"
+              className="ds-row mb-7 border-accent hover:border-accent"
             >
               {/* The visible text is the accessible name (so it always
                   contains what is shown); sr-only separators keep it readable. */}
-              <span className="block text-[13px] text-text-muted mb-1">
+              <span className="block text-[14px] font-semibold text-accent mb-1">
                 Continue learning<span className="sr-only">:</span>
               </span>
-              <span className="block text-[14px] font-medium text-text-primary">
+              <span className="block text-[17px] font-semibold text-text-primary">
                 {continueLecture.title}<span className="sr-only">.</span>
               </span>
               <span className="mt-1 block text-[13px] text-text-secondary">
@@ -200,7 +200,7 @@ export default function Home({
             </button>
           )}
 
-          <section aria-labelledby="new-lecture-heading" className="mb-12">
+          <section aria-labelledby="new-lecture-heading" className="mb-10">
             <h2 id="new-lecture-heading" className="text-[22px] font-bold tracking-tight text-text-primary mb-4">
               Start a new lecture
             </h2>
@@ -209,7 +209,7 @@ export default function Home({
               <label htmlFor="lecture-input" className="block text-[13px] font-medium text-text-secondary mb-2">
                 Lecture link or search
               </label>
-              <div className="ds-field">
+              <div className="ds-field flex-wrap sm:flex-nowrap">
                 <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-text-muted">
                   <circle cx="11" cy="11" r="7" />
                   <path d="M20 20l-4-4" />
@@ -224,9 +224,11 @@ export default function Home({
                   placeholder="Paste a YouTube link or search for a lecture"
                   className="flex-1 min-w-0 bg-transparent text-[17px] text-text-primary placeholder:text-text-muted outline-none"
                   spellCheck={false}
+                  aria-invalid={Boolean(validationError) || undefined}
+                  aria-describedby={validationError || searchError ? "lecture-input-error" : undefined}
                 />
                 {isValidUrl && (
-                  <span className="text-[13px] font-medium text-accent shrink-0">
+                  <span className="w-full sm:w-auto text-[13px] font-medium text-accent shrink-0">
                     YouTube lecture detected
                   </span>
                 )}
@@ -236,7 +238,8 @@ export default function Home({
             {(validationError || searchError) && (
               <div
                 role="alert"
-                className="mb-6 p-4 bg-surface border border-red-500/40 rounded-radius-md flex items-center justify-between gap-4"
+                id="lecture-input-error"
+                className="mb-6 p-4 bg-error-soft border border-error rounded-radius-md flex flex-wrap items-center justify-between gap-4"
               >
                 <span className="text-[14px] text-text-primary">
                   {validationError || searchError}
@@ -272,7 +275,7 @@ export default function Home({
             </button>
           </section>
 
-          <section aria-labelledby="explore-heading" className="mb-12">
+          <section aria-labelledby="explore-heading" className="border-t border-border-subtle pt-7">
             <h2 id="explore-heading" className="text-[22px] font-bold tracking-tight text-text-primary mb-4">
               Explore a subject
             </h2>
@@ -282,7 +285,7 @@ export default function Home({
                   key={subject}
                   type="button"
                   onClick={() => onExploreSubject(subject)}
-                  className="ds-row flex flex-col items-center gap-2.5 px-2.5 py-4 text-center text-[15px] font-semibold text-text-primary"
+                  className="ds-row flex flex-col items-center gap-2.5 px-2.5 py-3 text-center text-[15px] font-semibold text-text-primary shadow-none"
                 >
                   {/* Decorative icon: colour is decoration only, the text label names the subject. */}
                   <span aria-hidden="true" className={`grid h-[46px] w-[46px] place-items-center rounded-radius-md ${SUBJECT_TINTS[i % SUBJECT_TINTS.length]}`}>

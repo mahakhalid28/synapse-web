@@ -256,7 +256,7 @@ function AskLectureInner({
                 id={`${uid}-result-heading`}
                 ref={headingRef}
                 tabIndex={-1}
-                className="m-0 mb-2 text-[16px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-2"
+                className="m-0 mb-2 text-[16px] font-semibold rounded-radius-sm focus-ring"
               >
                 {HEADINGS[result.status]}
               </h3>

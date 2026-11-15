@@ -43,7 +43,7 @@ export default function Navbar({ theme = "paper", onThemeChange = () => {}, lead
   useVoiceActions({ open_settings: () => setOpen(true), close_settings: () => setOpen(false) });
 
   return (
-    <header className="h-14 shrink-0 bg-surface border-b border-border-subtle flex items-center px-4 relative z-40 font-sans">
+    <header className="min-h-[56px] shrink-0 bg-surface border-b border-border-subtle flex flex-wrap items-center gap-y-2 px-3 sm:px-4 py-1.5 relative z-40 font-sans">
       {leading && <div className="ml-auto flex items-center">{leading}</div>}
       {onHelp && (
         <button

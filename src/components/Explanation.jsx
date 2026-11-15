@@ -1932,7 +1932,7 @@ export default function Explanation({
   ) : null;
 
   return (
-    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+    <div className="ds-app-shell w-full bg-background font-sans">
       <nav aria-label="Main navigation">
         <Sidebar active="home" onNavigate={onNavigate} />
       </nav>
@@ -1941,7 +1941,7 @@ export default function Explanation({
           column, capped and centered on very wide screens so the layout
           doesn't stretch edge-to-edge; the Sidebar above stays flush-left
           like on every other screen. */}
-      <div className="flex flex-1 max-w-[1400px] mx-auto overflow-hidden">
+      <div className="ds-workbench">
         {/* Main reading area */}
         <main
           id="main-content"
@@ -1949,7 +1949,7 @@ export default function Explanation({
           aria-label="Lecture explanation"
           className="flex-1 overflow-y-auto outline-none"
         >
-          <div className="max-w-[720px] px-14 py-10">
+          <div className={"ds-reading-content " + (highContrast ? "ds-reading-contrast" : "")}>
             {storageError && <div className="mb-4"><p role="status">{storageError}</p>
               {readOnly && <button className="ds-btn-secondary" onClick={() => { setStorageError(null); setSavedLoadVersion((value) => value + 1); }}>Retry saved content</button>}
             </div>}
@@ -2076,12 +2076,10 @@ export default function Explanation({
                 </span>
               </div>
 
-              {/* Text size + High contrast are visual presentation settings
-              with no effect on what a screen reader announces — Accessibility
-              Mode has no visual viewport to adjust, so these never render
-              there (no useless focusable controls in that mode's tab order). */}
-              {presentationMode === "study" && (
-                <div className="flex items-center gap-2 shrink-0">
+              {/* Reading adjustments remain available to learners who combine
+                  audio-first presentation with residual vision. Both modes
+                  use the same settings state and existing handlers. */}
+                <div role="group" aria-label="Reading settings" className="flex flex-wrap items-center gap-2">
                   <div
                     role="group"
                     aria-label="Text size"
@@ -2126,7 +2124,6 @@ export default function Explanation({
                     High contrast
                   </button>
                 </div>
-              )}
             </div>
 
             {/* Where am I? — Study mode shows this in the Lecture Details
@@ -2506,7 +2503,7 @@ export default function Explanation({
               and prev/next all belong to this one unit). */}
             <div
               className={
-                "rounded-radius-lg p-7 md:p-10 " +
+                "rounded-radius-lg p-5 sm:p-7 " +
                 (highContrast
                   ? "bg-white border-2 border-black"
                   : "bg-surface border border-border-subtle shadow-card")
@@ -2526,6 +2523,130 @@ export default function Explanation({
                 >
                   Explanation
                 </h2>
+
+                {/* Audio controls — Listen/Pause controls ONLY Synapse's
+                explanation TTS; Resume video (Study mode, shown only while
+                Synapse holds the pause) controls ONLY the lecture video.
+                They're kept as two distinct, clearly-labelled buttons,
+                never combined. */}
+                <div role="group" aria-label="Explanation audio" className="mb-6 p-4 sm:p-5 bg-surface-muted rounded-radius-md flex items-center gap-4 flex-wrap">
+                  {/* Listen/Pause cluster — de-emphasized (via opacity) once
+                  this point's explanation has already played and isn't
+                  currently playing, since it's then a secondary "replay"
+                  control rather than the primary way to hear it. Resume
+                  video (below, outside this wrapper) is never affected by
+                  that de-emphasis. */}
+                  <div
+                    className={
+                      "flex flex-wrap items-center gap-4 w-full min-w-0 transition-opacity " +
+                      (audioControlsDeemphasized ? "opacity-70" : "")
+                    }
+                  >
+                    <button
+                      ref={listenBtnRef}
+                      aria-keyshortcuts="Alt+L"
+                      onClick={togglePlay}
+                      aria-disabled={!playbackSource || undefined}
+                      aria-label={
+                        isPlaying
+                          ? "Pause explanation audio"
+                          : "Listen to explanation audio"
+                      }
+                      className={"min-h-[44px] px-3 py-2 rounded-radius-md bg-accent-soft border border-accent text-accent text-[15px] font-semibold inline-flex gap-2 items-center justify-center shrink-0 hover:bg-surface transition-colors focus-ring " +
+                        (!playbackSource ? "opacity-40 cursor-not-allowed" : "")
+                      }
+                    >
+                      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={audioLoading ? "animate-spin" : ""}>
+                        {audioLoading ? <path d="M20 12a8 8 0 1 1-8-8" /> : isPlaying ? <><path d="M8 5v14M16 5v14" /></> : <path d="m8 5 11 7-11 7Z" />}
+                      </svg>
+                      <span>{isPlaying ? "Pause" : "Listen"}</span>
+                    </button>
+
+                    <div className="flex-1 min-w-[120px]">
+                      {/* Progress track */}
+                      <div className="h-1 bg-border-strong rounded-full relative">
+                        <div
+                          className="h-full bg-accent rounded-full transition-all duration-100"
+                          style={{
+                            width:
+                              audioDuration > 0
+                                ? `${(currentTime / audioDuration) * 100}%`
+                                : "0%",
+                          }}
+                        />
+                        {audioDuration > 0 && (
+                          <div
+                            className="absolute top-1/2 w-2.5 h-2.5 bg-accent rounded-full transition-all duration-100"
+                            style={{
+                              left: `${(currentTime / audioDuration) * 100}%`,
+                              transform: "translate(-50%, -50%)",
+                            }}
+                          />
+                        )}
+                      </div>
+
+                      {/* Time row */}
+                      <div className="flex flex-wrap gap-x-3 justify-between mt-2 font-mono text-[14px] text-text-muted">
+                        <span className="tabular-nums">{formatTime(currentTime)}</span>
+                        <span className="font-sans text-text-secondary">
+                          {audioLoading ? "Loading audio…" : audioLabel}
+                        </span>
+                        <span className="tabular-nums">
+                          {audioDuration > 0
+                            ? formatTime(audioDuration)
+                            : "--:--"}
+                        </span>
+                      </div>
+                      {audioError && (
+                        <p
+                          role="alert"
+                          className="mt-2 font-sans text-[13px] text-text-secondary"
+                        >
+                          {audioError}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-[14px] text-text-secondary shrink-0">
+                    Listening speed
+                    <select
+                      value={playbackRate}
+                      onChange={(e) => changeRate(parseFloat(e.target.value), false)}
+                      aria-keyshortcuts="Alt+. Alt+,"
+                      className="min-h-[44px] px-3 rounded-radius-sm border border-border-strong bg-surface text-text-primary focus-ring"
+                    >
+                      {RATES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}×
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {/* The one primary (filled-accent) action in this
+                  cluster, per the design spec: Resume video = primary,
+                  Listen = secondary/accent-outline above. */}
+                  {presentationMode === "study" &&
+                    pauseOwner === "intervention" && (
+                      <button
+                        onClick={() => {
+                          expectPlayerState(
+                            "playing",
+                            "Playing.",
+                            "The lecture did not resume. Press Resume video to try again.",
+                          );
+                          handleResumeVideo();
+                          // This button unmounts as the pause is released —
+                          // hand focus to Listen rather than dropping it.
+                          listenBtnRef.current?.focus();
+                        }}
+                        className="ds-btn-primary shrink-0"
+                      >
+                        <span aria-hidden="true">▶</span> Resume video
+                      </button>
+                    )}
+                </div>
 
                 {/* Structured View's rows are factual, detected from the
                 video; this prose is Synapse's own interpretation of what
@@ -2674,134 +2795,6 @@ export default function Explanation({
                   controlRef={voiceControlRef}
                 />
 
-                {/* Audio controls — Listen/Pause controls ONLY Synapse's
-                explanation TTS; Resume video (Study mode, shown only while
-                Synapse holds the pause) controls ONLY the lecture video.
-                They're kept as two distinct, clearly-labelled buttons,
-                never combined. */}
-                <div className="mt-9 px-5 py-4 bg-surface-muted rounded-radius-md flex items-center gap-4 flex-wrap">
-                  {/* Listen/Pause cluster — de-emphasized (via opacity) once
-                  this point's explanation has already played and isn't
-                  currently playing, since it's then a secondary "replay"
-                  control rather than the primary way to hear it. Resume
-                  video (below, outside this wrapper) is never affected by
-                  that de-emphasis. */}
-                  <div
-                    className={
-                      "flex items-center gap-4 flex-1 min-w-[220px] transition-opacity " +
-                      (audioControlsDeemphasized ? "opacity-70" : "")
-                    }
-                  >
-                    <button
-                      ref={listenBtnRef}
-                      aria-keyshortcuts="Alt+L"
-                      onClick={togglePlay}
-                      aria-disabled={!playbackSource || undefined}
-                      aria-label={
-                        isPlaying
-                          ? "Pause explanation audio"
-                          : "Listen to explanation audio"
-                      }
-                      className={"w-11 h-11 rounded-full bg-accent-soft border border-accent text-accent flex items-center justify-center shrink-0 hover:bg-surface transition-colors focus-ring " +
-                        (!playbackSource ? "opacity-40 cursor-not-allowed" : "")
-                      }
-                    >
-                      {audioLoading ? (
-                        <span aria-hidden="true" className="text-[8px]">
-                          …
-                        </span>
-                      ) : (
-                        <span aria-hidden="true" className="text-xs ml-0.5">
-                          {isPlaying ? "❚❚" : "▶"}
-                        </span>
-                      )}
-                    </button>
-
-                    <div className="flex-1 min-w-[160px]">
-                      {/* Progress track */}
-                      <div className="h-0.5 bg-border-subtle rounded-full relative">
-                        <div
-                          className="h-full bg-accent rounded-full transition-all duration-100"
-                          style={{
-                            width:
-                              audioDuration > 0
-                                ? `${(currentTime / audioDuration) * 100}%`
-                                : "0%",
-                          }}
-                        />
-                        {audioDuration > 0 && (
-                          <div
-                            className="absolute top-1/2 w-2.5 h-2.5 bg-accent rounded-full transition-all duration-100"
-                            style={{
-                              left: `${(currentTime / audioDuration) * 100}%`,
-                              transform: "translate(-50%, -50%)",
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      {/* Time row */}
-                      <div className="flex justify-between mt-2 font-mono text-[14px] text-text-muted">
-                        <span className="tabular-nums">{formatTime(currentTime)}</span>
-                        <span className="font-sans text-text-secondary">
-                          {audioLoading ? "Loading audio…" : audioLabel}
-                        </span>
-                        <span className="tabular-nums">
-                          {audioDuration > 0
-                            ? formatTime(audioDuration)
-                            : "--:--"}
-                        </span>
-                      </div>
-                      {audioError && (
-                        <p
-                          role="alert"
-                          className="mt-2 font-sans text-[13px] text-text-secondary"
-                        >
-                          {audioError}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <label className="flex items-center gap-2 text-[14px] text-text-secondary shrink-0">
-                    Listening speed
-                    <select
-                      value={playbackRate}
-                      onChange={(e) => changeRate(parseFloat(e.target.value), false)}
-                      aria-keyshortcuts="Alt+. Alt+,"
-                      className="min-h-[36px] px-2 rounded-radius-sm border border-border-strong bg-surface text-text-primary focus-ring"
-                    >
-                      {RATES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}×
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {/* The one primary (filled-accent) action in this
-                  cluster, per the design spec: Resume video = primary,
-                  Listen = secondary/accent-outline above. */}
-                  {presentationMode === "study" &&
-                    pauseOwner === "intervention" && (
-                      <button
-                        onClick={() => {
-                          expectPlayerState(
-                            "playing",
-                            "Playing.",
-                            "The lecture did not resume. Press Resume video to try again.",
-                          );
-                          handleResumeVideo();
-                          // This button unmounts as the pause is released —
-                          // hand focus to Listen rather than dropping it.
-                          listenBtnRef.current?.focus();
-                        }}
-                        className="ds-btn-primary shrink-0"
-                      >
-                        <span aria-hidden="true">▶</span> Resume video
-                      </button>
-                    )}
-                </div>
               </div>
 
               {/* Secondary actions — deliberately quieter (plain text-style
@@ -2856,7 +2849,7 @@ export default function Explanation({
               )}
 
               {/* Prev/next navigation */}
-              <div className="flex justify-between mt-9 pt-6 border-t border-border-subtle text-[14px]">
+              <div className="flex justify-between gap-5 mt-9 pt-6 border-t border-border-subtle text-[14px]">
                 {prevPoint ? (
                   <button
                     onClick={() => selectPointManually(prevPoint.id)}
@@ -2956,7 +2949,7 @@ export default function Explanation({
         {presentationMode === "study" && (
           <aside
             aria-label="Lecture details"
-            className="w-[320px] bg-surface-muted/50 border-l border-border-subtle p-5 overflow-y-auto shrink-0"
+            className="bg-surface-muted/50 p-5 shrink-0"
           >
             {/* Only real entry point into Timeline — carries the current
             point along via onOpenTimeline so Timeline opens with it already

@@ -221,8 +221,19 @@ describe("original Structured View", () => {
     expect(screen.getByText("From the video")).toBeTruthy();
     expect(screen.getByText("Time, in seconds")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Study mode" }));
     fireEvent.click(screen.getByRole("button", { name: "High contrast" }));
+    expect(screen.getByRole("button", { name: "High contrast" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Time, in seconds").className).toContain("text-black");
+    const paragraph = screen.getByText("p1 explanation remains visible.");
+    const originalSize = parseFloat(paragraph.parentElement.style.fontSize);
+    fireEvent.click(screen.getByRole("button", { name: "Increase text size" }));
+    expect(parseFloat(paragraph.parentElement.style.fontSize)).toBeGreaterThan(originalSize);
+
+    const player = h.players[0];
+    fireEvent.click(screen.getByRole("button", { name: "Study mode" }));
+    expect(h.players).toHaveLength(1);
+    expect(h.players[0]).toBe(player);
+    expect(screen.getByRole("button", { name: "High contrast" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: "Structured View" }));
     expect(screen.getByText("Time, in seconds").className).toContain("text-black");
   });

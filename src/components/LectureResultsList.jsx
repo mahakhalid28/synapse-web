@@ -44,12 +44,12 @@ export default function LectureResultsList({
                 onClick={() => onSelect(r)}
                 disabled={disabled}
                 aria-label={getAriaLabel ? getAriaLabel(r, i) : resultAriaLabel(r, offset + i + 1, total)}
-                className={`ds-row outline-none flex items-center gap-4 w-full text-left !p-3.5 transition-colors ${
+                className={`ds-row outline-none flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full text-left !p-3.5 transition-colors ${
                   disabled ? "opacity-50 cursor-not-allowed" : "hover:border-accent"
                 }`}
               >
                 {thumb && (
-                  <div className="w-[120px] sm:w-[168px] shrink-0 aspect-video rounded-radius-md overflow-hidden bg-surface-muted relative border border-border-subtle">
+                  <div className="w-full sm:w-[168px] shrink-0 aspect-video rounded-radius-md overflow-hidden bg-surface-muted relative border border-border-subtle">
                     <img
                       src={thumb}
                       alt=""

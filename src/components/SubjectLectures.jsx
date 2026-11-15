@@ -51,7 +51,7 @@ export default function SubjectLectures({
   }, []);
 
   return (
-    <div className="flex h-full w-full bg-background font-sans overflow-hidden">
+    <div className="ds-app-shell w-full bg-background font-sans">
       <nav aria-label="Main navigation">
         <Sidebar active="home" onNavigate={onNavigate} />
       </nav>
@@ -62,7 +62,7 @@ export default function SubjectLectures({
         aria-labelledby="subject-page-title"
         className="flex-1 overflow-y-auto outline-none"
       >
-        <div className="w-full max-w-[880px] mx-auto px-10 py-14">
+        <div className="ds-content w-full max-w-[880px] mx-auto">
           {/* Empty on load; only ever holds a real, meaningful update. */}
           <div aria-live="polite" aria-atomic="true" className="sr-only">
             {statusMessage}
@@ -81,7 +81,7 @@ export default function SubjectLectures({
             <label htmlFor={inputId} className="block text-[13px] font-medium text-text-secondary mb-2">
               {`Search ${subject} lectures`}
             </label>
-            <div className="ds-field">
+            <div className="ds-field flex-wrap sm:flex-nowrap">
               <input
                 id={inputId}
                 ref={inputRef}
@@ -90,11 +90,13 @@ export default function SubjectLectures({
                 onChange={handleUrlChange}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 placeholder="Paste a YouTube link or search for a lecture"
-                className="flex-1 bg-transparent font-mono text-[13px] text-text-primary placeholder:text-text-muted outline-none"
+                className="flex-1 min-w-0 bg-transparent text-[17px] text-text-primary placeholder:text-text-muted outline-none"
                 spellCheck={false}
+                aria-invalid={Boolean(validationError) || undefined}
+                aria-describedby={validationError || searchError ? `${inputId}-error` : undefined}
               />
               {isValidUrl && (
-                <span className="text-[13px] font-medium text-accent shrink-0">
+                <span className="w-full sm:w-auto text-[13px] font-medium text-accent shrink-0">
                   YouTube lecture detected
                 </span>
               )}
@@ -104,7 +106,8 @@ export default function SubjectLectures({
           {(validationError || searchError) && (
             <div
               role="alert"
-              className="mb-6 p-4 bg-surface border border-red-500/40 rounded-radius-md flex items-center justify-between gap-4"
+              id={`${inputId}-error`}
+              className="mb-6 p-4 bg-error-soft border border-error rounded-radius-md flex flex-wrap items-center justify-between gap-4"
             >
               <span className="text-[14px] text-text-primary">
                 {validationError || searchError}

@@ -1,0 +1,697 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-15T18:32:47.723Z",
+  "title": "Design System: Synapse",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Study Indigo",
+        "tonalRamp": [
+          "oklch(15% 0.0877 276.64)",
+          "oklch(27% 0.1449 276.64)",
+          "oklch(38% 0.1796 276.64)",
+          "oklch(50% 0.1931 276.64)",
+          "oklch(62% 0.1796 276.64)",
+          "oklch(74% 0.1408 276.64)",
+          "oklch(85% 0.0877 276.64)",
+          "oklch(95% 0.0302 276.64)"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Accent Hover",
+        "tonalRamp": [
+          "oklch(15% 0.0748 276.82)",
+          "oklch(27% 0.1237 276.82)",
+          "oklch(38% 0.1533 276.82)",
+          "oklch(50% 0.1648 276.82)",
+          "oklch(62% 0.1533 276.82)",
+          "oklch(74% 0.1202 276.82)",
+          "oklch(85% 0.0748 276.82)",
+          "oklch(95% 0.0258 276.82)"
+        ]
+      },
+      "accent-pressed": {
+        "role": "primary",
+        "displayName": "Accent Pressed",
+        "tonalRamp": [
+          "oklch(15% 0.0631 277.44)",
+          "oklch(27% 0.1043 277.44)",
+          "oklch(38% 0.1293 277.44)",
+          "oklch(50% 0.1390 277.44)",
+          "oklch(62% 0.1293 277.44)",
+          "oklch(74% 0.1014 277.44)",
+          "oklch(85% 0.0631 277.44)",
+          "oklch(95% 0.0218 277.44)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Accent Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0210 289.48)",
+          "oklch(27% 0.0347 289.48)",
+          "oklch(38% 0.0431 289.48)",
+          "oklch(50% 0.0463 289.48)",
+          "oklch(62% 0.0431 289.48)",
+          "oklch(74% 0.0338 289.48)",
+          "oklch(85% 0.0210 289.48)",
+          "oklch(95% 0.0072 289.48)"
+        ]
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "On Accent",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(27% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(85% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "teal": {
+        "role": "secondary",
+        "displayName": "Deep Teal",
+        "tonalRamp": [
+          "oklch(15% 0.0291 188.75)",
+          "oklch(27% 0.0481 188.75)",
+          "oklch(38% 0.0597 188.75)",
+          "oklch(50% 0.0642 188.75)",
+          "oklch(62% 0.0597 188.75)",
+          "oklch(74% 0.0468 188.75)",
+          "oklch(85% 0.0291 188.75)",
+          "oklch(95% 0.0100 188.75)"
+        ]
+      },
+      "teal-soft": {
+        "role": "secondary",
+        "displayName": "Teal Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0182 186.78)",
+          "oklch(27% 0.0300 186.78)",
+          "oklch(38% 0.0372 186.78)",
+          "oklch(50% 0.0400 186.78)",
+          "oklch(62% 0.0372 186.78)",
+          "oklch(74% 0.0292 186.78)",
+          "oklch(85% 0.0182 186.78)",
+          "oklch(95% 0.0063 186.78)"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Lavender Mist",
+        "tonalRamp": [
+          "oklch(15% 0.0112 275.90)",
+          "oklch(27% 0.0186 275.90)",
+          "oklch(38% 0.0230 275.90)",
+          "oklch(50% 0.0247 275.90)",
+          "oklch(62% 0.0230 275.90)",
+          "oklch(74% 0.0180 275.90)",
+          "oklch(85% 0.0112 275.90)",
+          "oklch(95% 0.0039 275.90)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "White Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(27% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(85% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "surface-muted": {
+        "role": "neutral",
+        "displayName": "Soft Lavender",
+        "tonalRamp": [
+          "oklch(15% 0.0086 279.53)",
+          "oklch(27% 0.0142 279.53)",
+          "oklch(38% 0.0176 279.53)",
+          "oklch(50% 0.0189 279.53)",
+          "oklch(62% 0.0176 279.53)",
+          "oklch(74% 0.0138 279.53)",
+          "oklch(85% 0.0086 279.53)",
+          "oklch(95% 0.0030 279.53)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Deep Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0180 276.01)",
+          "oklch(27% 0.0298 276.01)",
+          "oklch(38% 0.0369 276.01)",
+          "oklch(50% 0.0397 276.01)",
+          "oklch(62% 0.0369 276.01)",
+          "oklch(74% 0.0289 276.01)",
+          "oklch(85% 0.0180 276.01)",
+          "oklch(95% 0.0062 276.01)"
+        ]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Slate Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0239 273.53)",
+          "oklch(27% 0.0394 273.53)",
+          "oklch(38% 0.0489 273.53)",
+          "oklch(50% 0.0525 273.53)",
+          "oklch(62% 0.0489 273.53)",
+          "oklch(74% 0.0383 273.53)",
+          "oklch(85% 0.0239 273.53)",
+          "oklch(95% 0.0082 273.53)"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Muted Slate",
+        "tonalRamp": [
+          "oklch(15% 0.0259 274.25)",
+          "oklch(27% 0.0428 274.25)",
+          "oklch(38% 0.0531 274.25)",
+          "oklch(50% 0.0571 274.25)",
+          "oklch(62% 0.0531 274.25)",
+          "oklch(74% 0.0416 274.25)",
+          "oklch(85% 0.0259 274.25)",
+          "oklch(95% 0.0089 274.25)"
+        ]
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Soft Divider",
+        "tonalRamp": [
+          "oklch(15% 0.0166 275.29)",
+          "oklch(27% 0.0275 275.29)",
+          "oklch(38% 0.0341 275.29)",
+          "oklch(50% 0.0366 275.29)",
+          "oklch(62% 0.0341 275.29)",
+          "oklch(74% 0.0267 275.29)",
+          "oklch(85% 0.0166 275.29)",
+          "oklch(95% 0.0057 275.29)"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Control Boundary",
+        "tonalRamp": [
+          "oklch(15% 0.0231 273.71)",
+          "oklch(27% 0.0381 273.71)",
+          "oklch(38% 0.0473 273.71)",
+          "oklch(50% 0.0508 273.71)",
+          "oklch(62% 0.0473 273.71)",
+          "oklch(74% 0.0371 273.71)",
+          "oklch(85% 0.0231 273.71)",
+          "oklch(95% 0.0080 273.71)"
+        ]
+      },
+      "focus": {
+        "role": "neutral",
+        "displayName": "Focus Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0180 276.01)",
+          "oklch(27% 0.0298 276.01)",
+          "oklch(38% 0.0369 276.01)",
+          "oklch(50% 0.0397 276.01)",
+          "oklch(62% 0.0369 276.01)",
+          "oklch(74% 0.0289 276.01)",
+          "oklch(85% 0.0180 276.01)",
+          "oklch(95% 0.0062 276.01)"
+        ]
+      },
+      "success": {
+        "role": "neutral",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15% 0.0417 156.14)",
+          "oklch(27% 0.0689 156.14)",
+          "oklch(38% 0.0854 156.14)",
+          "oklch(50% 0.0919 156.14)",
+          "oklch(62% 0.0854 156.14)",
+          "oklch(74% 0.0670 156.14)",
+          "oklch(85% 0.0417 156.14)",
+          "oklch(95% 0.0144 156.14)"
+        ]
+      },
+      "success-soft": {
+        "role": "neutral",
+        "displayName": "Success Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0112 160.59)",
+          "oklch(27% 0.0186 160.59)",
+          "oklch(38% 0.0230 160.59)",
+          "oklch(50% 0.0248 160.59)",
+          "oklch(62% 0.0230 160.59)",
+          "oklch(74% 0.0181 160.59)",
+          "oklch(85% 0.0112 160.59)",
+          "oklch(95% 0.0039 160.59)"
+        ]
+      },
+      "warning": {
+        "role": "neutral",
+        "displayName": "Warning",
+        "tonalRamp": [
+          "oklch(15% 0.0420 67.87)",
+          "oklch(27% 0.0695 67.87)",
+          "oklch(38% 0.0861 67.87)",
+          "oklch(50% 0.0926 67.87)",
+          "oklch(62% 0.0861 67.87)",
+          "oklch(74% 0.0675 67.87)",
+          "oklch(85% 0.0420 67.87)",
+          "oklch(95% 0.0145 67.87)"
+        ]
+      },
+      "warning-soft": {
+        "role": "neutral",
+        "displayName": "Warning Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0171 86.89)",
+          "oklch(27% 0.0282 86.89)",
+          "oklch(38% 0.0350 86.89)",
+          "oklch(50% 0.0376 86.89)",
+          "oklch(62% 0.0350 86.89)",
+          "oklch(74% 0.0274 86.89)",
+          "oklch(85% 0.0171 86.89)",
+          "oklch(95% 0.0059 86.89)"
+        ]
+      },
+      "error": {
+        "role": "neutral",
+        "displayName": "Error",
+        "tonalRamp": [
+          "oklch(15% 0.0732 24.05)",
+          "oklch(27% 0.1209 24.05)",
+          "oklch(38% 0.1499 24.05)",
+          "oklch(50% 0.1612 24.05)",
+          "oklch(62% 0.1499 24.05)",
+          "oklch(74% 0.1175 24.05)",
+          "oklch(85% 0.0732 24.05)",
+          "oklch(95% 0.0252 24.05)"
+        ]
+      },
+      "error-soft": {
+        "role": "neutral",
+        "displayName": "Error Soft",
+        "tonalRamp": [
+          "oklch(15% 0.0099 17.55)",
+          "oklch(27% 0.0164 17.55)",
+          "oklch(38% 0.0203 17.55)",
+          "oklch(50% 0.0219 17.55)",
+          "oklch(62% 0.0203 17.55)",
+          "oklch(74% 0.0159 17.55)",
+          "oklch(85% 0.0099 17.55)",
+          "oklch(95% 0.0034 17.55)"
+        ]
+      },
+      "side-bg": {
+        "role": "neutral",
+        "displayName": "Sidebar Indigo",
+        "tonalRamp": [
+          "oklch(15% 0.0460 280.33)",
+          "oklch(27% 0.0759 280.33)",
+          "oklch(38% 0.0941 280.33)",
+          "oklch(50% 0.1012 280.33)",
+          "oklch(62% 0.0941 280.33)",
+          "oklch(74% 0.0738 280.33)",
+          "oklch(85% 0.0460 280.33)",
+          "oklch(95% 0.0158 280.33)"
+        ]
+      },
+      "side-fg": {
+        "role": "neutral",
+        "displayName": "Side Fg",
+        "tonalRamp": [
+          "oklch(15% 0.0191 288.50)",
+          "oklch(27% 0.0315 288.50)",
+          "oklch(38% 0.0391 288.50)",
+          "oklch(50% 0.0420 288.50)",
+          "oklch(62% 0.0391 288.50)",
+          "oklch(74% 0.0306 288.50)",
+          "oklch(85% 0.0191 288.50)",
+          "oklch(95% 0.0066 288.50)"
+        ]
+      },
+      "side-muted": {
+        "role": "neutral",
+        "displayName": "Side Muted",
+        "tonalRamp": [
+          "oklch(15% 0.0291 286.91)",
+          "oklch(27% 0.0480 286.91)",
+          "oklch(38% 0.0596 286.91)",
+          "oklch(50% 0.0641 286.91)",
+          "oklch(62% 0.0596 286.91)",
+          "oklch(74% 0.0467 286.91)",
+          "oklch(85% 0.0291 286.91)",
+          "oklch(95% 0.0100 286.91)"
+        ]
+      },
+      "side-active-bg": {
+        "role": "neutral",
+        "displayName": "Side Active Bg",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(27% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(85% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "side-active-fg": {
+        "role": "neutral",
+        "displayName": "Side Active Fg",
+        "tonalRamp": [
+          "oklch(15% 0.0801 275.49)",
+          "oklch(27% 0.1324 275.49)",
+          "oklch(38% 0.1641 275.49)",
+          "oklch(50% 0.1765 275.49)",
+          "oklch(62% 0.1641 275.49)",
+          "oklch(74% 0.1287 275.49)",
+          "oklch(85% 0.0801 275.49)",
+          "oklch(95% 0.0276 275.49)"
+        ]
+      },
+      "side-recent-bg": {
+        "role": "neutral",
+        "displayName": "Side Recent Bg",
+        "tonalRamp": [
+          "oklch(15% 0.0531 281.24)",
+          "oklch(27% 0.0877 281.24)",
+          "oklch(38% 0.1087 281.24)",
+          "oklch(50% 0.1169 281.24)",
+          "oklch(62% 0.1087 281.24)",
+          "oklch(74% 0.0852 281.24)",
+          "oklch(85% 0.0531 281.24)",
+          "oklch(95% 0.0183 281.24)"
+        ]
+      },
+      "side-line": {
+        "role": "neutral",
+        "displayName": "Side Line",
+        "tonalRamp": [
+          "oklch(15% 0.0536 282.24)",
+          "oklch(27% 0.0886 282.24)",
+          "oklch(38% 0.1098 282.24)",
+          "oklch(50% 0.1181 282.24)",
+          "oklch(62% 0.1098 282.24)",
+          "oklch(74% 0.0861 282.24)",
+          "oklch(85% 0.0536 282.24)",
+          "oklch(95% 0.0185 282.24)"
+        ]
+      },
+      "side-focus": {
+        "role": "neutral",
+        "displayName": "Side Focus",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(27% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(85% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "hero-from": {
+        "role": "neutral",
+        "displayName": "Hero From",
+        "tonalRamp": [
+          "oklch(15% 0.0877 276.64)",
+          "oklch(27% 0.1449 276.64)",
+          "oklch(38% 0.1796 276.64)",
+          "oklch(50% 0.1931 276.64)",
+          "oklch(62% 0.1796 276.64)",
+          "oklch(74% 0.1408 276.64)",
+          "oklch(85% 0.0877 276.64)",
+          "oklch(95% 0.0302 276.64)"
+        ]
+      },
+      "hero-to": {
+        "role": "neutral",
+        "displayName": "Hero To",
+        "tonalRamp": [
+          "oklch(15% 0.0291 188.75)",
+          "oklch(27% 0.0481 188.75)",
+          "oklch(38% 0.0597 188.75)",
+          "oklch(50% 0.0642 188.75)",
+          "oklch(62% 0.0597 188.75)",
+          "oklch(74% 0.0468 188.75)",
+          "oklch(85% 0.0291 188.75)",
+          "oklch(95% 0.0100 188.75)"
+        ]
+      },
+      "hero-fg": {
+        "role": "neutral",
+        "displayName": "Hero Fg",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(27% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(85% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "hero-sub": {
+        "role": "neutral",
+        "displayName": "Hero Sub",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(27% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(85% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Home and large welcome headings; responsive exceptions documented in DESIGN.md."
+      },
+      "headline": {
+        "displayName": "Section headline",
+        "purpose": "Common section heading, not a universal heading class."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default running text."
+      },
+      "label": {
+        "displayName": "Action label",
+        "purpose": "Primary and secondary action labels."
+      },
+      "mono": {
+        "displayName": "Time and technical labels",
+        "purpose": "Timestamps and keyboard references."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card",
+        "purpose": "Paper static cards and interactive rows; resolves through --shadow-card.",
+        "value": "0 1px 2px rgb(0 0 0 / 0.05), 0 10px 28px rgb(20 23 43 / 0.07)"
+      },
+      {
+        "name": "button",
+        "purpose": "Paper primary action; Night disables it.",
+        "value": "0 2px 6px rgb(54 44 172 / 0.28)"
+      },
+      {
+        "name": "focus",
+        "value": "0 0 0 2px rgb(var(--surface)), 0 0 0 5px rgb(var(--focus))",
+        "purpose": "Focus-visible; sidebar substitutes --side-bg and --side-focus."
+      },
+      {
+        "name": "dialog",
+        "value": "0 8px 32px rgba(15,23,42,0.24)",
+        "purpose": "Help dialog over its scrim."
+      },
+      {
+        "name": "night-card",
+        "value": "0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px rgb(0 0 0 / 0.35)",
+        "purpose": "night theme override of --shadow-card."
+      },
+      {
+        "name": "night-button",
+        "value": "none",
+        "purpose": "night theme override of --shadow-btn."
+      },
+      {
+        "name": "sepia-card",
+        "value": "0 1px 2px rgb(48 30 14 / 0.08), 0 10px 28px rgb(48 30 14 / 0.1)",
+        "purpose": "sepia theme override of --shadow-card."
+      },
+      {
+        "name": "sepia-button",
+        "value": "0 2px 6px rgb(122 62 24 / 0.3)",
+        "purpose": "sepia theme override of --shadow-btn."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Installed Tailwind transition-colors default; reduced motion disables pulse and spin."
+      },
+      {
+        "name": "lecture-progress",
+        "value": "100ms",
+        "purpose": "Local progress transitions, not an app-wide default."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled main action, with theme-aware foreground and visible focus.",
+      "html": "<button class=\"ds-btn-primary ds-focus\">Start learning</button>",
+      "css": ".ds-focus { outline:3px solid transparent; outline-offset:2px; } .ds-focus:focus-visible { box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus)); } @media(forced-colors:active){.ds-focus:not(:focus-visible){outline-style:none;}}.ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-sans);transition:color .15s cubic-bezier(.4,0,.2,1),background-color .15s cubic-bezier(.4,0,.2,1),border-color .15s cubic-bezier(.4,0,.2,1);gap:10px;padding:12px 24px;min-height:48px;background:rgb(var(--accent));color:rgb(var(--on-accent));border:0;border-radius:var(--radius-md);font-size:15px;font-weight:600;box-shadow:var(--shadow-btn);}.ds-btn-primary:hover:not(:disabled){background:rgb(var(--accent-hover));}.ds-btn-primary:active:not(:disabled){background:rgb(var(--accent-pressed));}.ds-btn-primary:focus-visible{box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus));}@media(forced-colors:active){.ds-btn-primary{border:3px solid ButtonText;}}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Strong bordered supporting action.",
+      "html": "<button class=\"ds-btn-secondary ds-focus\">Cancel</button>",
+      "css": ".ds-focus { outline:3px solid transparent; outline-offset:2px; } .ds-focus:focus-visible { box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus)); } @media(forced-colors:active){.ds-focus:not(:focus-visible){outline-style:none;}}.ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-sans);transition:color .15s cubic-bezier(.4,0,.2,1),background-color .15s cubic-bezier(.4,0,.2,1),border-color .15s cubic-bezier(.4,0,.2,1);gap:8px;padding:10px 16px;min-height:48px;background:rgb(var(--surface));color:rgb(var(--text-primary));border:1.5px solid rgb(var(--border-strong));border-radius:var(--radius-md);font-size:15px;font-weight:600;}.ds-btn-secondary:hover:not(:disabled){background:rgb(var(--surface-muted));}"
+    },
+    {
+      "name": "Accent Outline Button",
+      "kind": "button",
+      "refersTo": "button-accent-outline",
+      "description": "Softly filled accent-adjacent listening action.",
+      "html": "<button class=\"ds-btn-accent-outline ds-focus\">Listen</button>",
+      "css": ".ds-focus { outline:3px solid transparent; outline-offset:2px; } .ds-focus:focus-visible { box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus)); } @media(forced-colors:active){.ds-focus:not(:focus-visible){outline-style:none;}}.ds-btn-accent-outline{display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-sans);transition:color .15s cubic-bezier(.4,0,.2,1),background-color .15s cubic-bezier(.4,0,.2,1),border-color .15s cubic-bezier(.4,0,.2,1);gap:8px;padding:10px 16px;min-height:44px;background:rgb(var(--accent-soft));color:rgb(var(--accent));border:1px solid rgb(var(--accent));border-radius:var(--radius-md);font-size:14px;font-weight:500;}.ds-btn-accent-outline:hover:not(:disabled){background:rgb(var(--surface));}"
+    },
+    {
+      "name": "Text Button",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "Quiet action with underline on hover.",
+      "html": "<button class=\"ds-btn-text ds-focus\">Skip for now</button>",
+      "css": ".ds-focus { outline:3px solid transparent; outline-offset:2px; } .ds-focus:focus-visible { box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus)); } @media(forced-colors:active){.ds-focus:not(:focus-visible){outline-style:none;}}.ds-btn-text{display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-sans);transition:color .15s cubic-bezier(.4,0,.2,1),background-color .15s cubic-bezier(.4,0,.2,1),border-color .15s cubic-bezier(.4,0,.2,1);gap:4px;padding:6px 0;background:transparent;color:rgb(var(--accent));border:0;border-radius:var(--radius-sm);font-size:14px;font-weight:500;}.ds-btn-text:hover{text-decoration:underline;}"
+    },
+    {
+      "name": "Lecture Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Labelled search wrapper; focus ring applies to the complete field.",
+      "html": "<label for=\"ds-lecture\" class=\"ds-field-label\">YouTube link or topic</label><div class=\"ds-field\"><input id=\"ds-lecture\" class=\"ds-field-input\" placeholder=\"Paste a YouTube link\" /></div>",
+      "css": ".ds-field-label{display:block;margin-bottom:8px;font:500 13px var(--font-sans);color:rgb(var(--text-secondary));}.ds-field{display:flex;align-items:center;gap:12px;padding:12px 16px;min-height:56px;background:rgb(var(--surface));border:1.5px solid rgb(var(--border-strong));border-radius:var(--radius-md);transition:background-color .15s,border-color .15s;}.ds-field:focus-within{border-color:rgb(var(--accent));box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus));}.ds-field-input{flex:1;min-width:0;border:0;background:transparent;color:rgb(var(--text-primary));font:400 17px var(--font-sans);outline:none;}.ds-field-input::placeholder{color:rgb(var(--text-muted));}"
+    },
+    {
+      "name": "Static Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Non-interactive panel. Example padding belongs to content, not the card primitive.",
+      "html": "<div class=\"ds-card\"><p class=\"ds-card-content\">Lecture details</p></div>",
+      "css": ".ds-card{background:rgb(var(--surface));color:rgb(var(--text-primary));border:1px solid rgb(var(--border-subtle));border-radius:var(--radius-lg);box-shadow:var(--shadow-card);font-family:var(--font-sans);}.ds-card-content{margin:0;padding:24px;font-size:16px;}"
+    },
+    {
+      "name": "Clickable Row",
+      "kind": "button",
+      "refersTo": "row",
+      "description": "Interactive full-width row with stronger boundary than a static card.",
+      "html": "<button class=\"ds-row ds-focus\">Continue learning</button>",
+      "css": ".ds-focus { outline:3px solid transparent; outline-offset:2px; } .ds-focus:focus-visible { box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus)); } @media(forced-colors:active){.ds-focus:not(:focus-visible){outline-style:none;}}.ds-row{display:block;width:100%;text-align:left;padding:16px 20px;background:rgb(var(--surface));color:rgb(var(--text-primary));border:1.5px solid rgb(var(--border-strong));border-radius:var(--radius-md);box-shadow:var(--shadow-card);font:400 16px var(--font-sans);transition:background-color .15s;}.ds-row:hover{background:rgb(var(--surface-muted));}.ds-row:focus-visible{box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus));}"
+    },
+    {
+      "name": "Category Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Neutral category label; not a selectable control by default.",
+      "html": "<span class=\"ds-chip\">Diagram</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgb(var(--surface-muted));color:rgb(var(--text-primary));border:1px solid rgb(var(--border-strong));border-radius:9999px;font:500 14px var(--font-sans);}"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Current-page fill and bold text, with sidebar-specific focus and forced-colour cues.",
+      "html": "<nav class=\"ds-side\" aria-label=\"Example navigation\"><button class=\"ds-nav-item ds-nav-item-active ds-focus\" aria-current=\"page\">Home</button><button class=\"ds-nav-item ds-focus\">Library</button></nav>",
+      "css": ".ds-focus { outline:3px solid transparent; outline-offset:2px; } .ds-focus:focus-visible { box-shadow:0 0 0 2px rgb(var(--surface)),0 0 0 5px rgb(var(--focus)); } @media(forced-colors:active){.ds-focus:not(:focus-visible){outline-style:none;}}.ds-side{padding:16px;background:rgb(var(--side-bg));color:rgb(var(--side-fg));border-right:1px solid rgb(var(--side-line));}.ds-nav-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px 14px;min-height:46px;border:0;border-radius:var(--radius-md);background:transparent;color:rgb(var(--side-fg));font:500 15px var(--font-sans);transition:background-color .15s;}.ds-nav-item:hover{background:rgb(var(--side-recent-bg));}.ds-nav-item-active,.ds-nav-item-active:hover{background:rgb(var(--side-active-bg));color:rgb(var(--side-active-fg));font-weight:700;}.ds-side .ds-focus:focus-visible{box-shadow:0 0 0 2px rgb(var(--side-bg)),0 0 0 5px rgb(var(--side-focus));}@media(forced-colors:active){.ds-nav-item-active{border-inline-start:5px solid Highlight;text-decoration:underline;}}"
+    },
+    {
+      "name": "Header Band",
+      "kind": "custom",
+      "description": "Existing shared indigo-to-teal header treatment.",
+      "html": "<div class=\"ds-hero\"><h1 class=\"ds-hero-title\">Welcome to Synapse</h1><p class=\"ds-hero-copy\">You can listen, read or watch.</p></div>",
+      "css": ".ds-hero{padding:32px;background:linear-gradient(120deg,rgb(var(--hero-from)) 0%,rgb(var(--hero-to)) 100%);color:rgb(var(--hero-fg));font-family:var(--font-sans);}.ds-hero-title{margin:0 0 12px;font-size:40px;font-weight:700;line-height:1.25;letter-spacing:-.025em;}.ds-hero-copy{margin:0;font-size:17px;line-height:1.625;color:rgb(var(--hero-sub));}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Accessible Study Desk",
+    "overview": "Synapse is calm, colourful and legible; clarity leads every decision. Like a well-organised study desk, it gives lecture content, playback and learning actions clear places. Colour distinguishes regions and supports orientation while readable text and explicit controls carry meaning.\n\nComponents feel approachable and precise. Rounded boundaries, generous control targets and layered surfaces with soft ambient shadows make the interface easy to scan without turning it into a decorative showcase. Strong focus indicators and non-colour state cues are part of the visual system.",
+    "keyCharacteristics": [
+      "Clear hierarchy with self-hosted, highly legible sans-serif type.",
+      "Study Indigo and Deep Teal, with Lavender Mist and white surfaces.",
+      "Clearly bounded controls and rounded, softly layered panels.",
+      "Consistent interaction cues across Paper, Night and Sepia."
+    ],
+    "rules": [
+      {
+        "name": "The Boundary Rule",
+        "body": "Interactive boundaries use the strong border tier. Soft dividers and shadows must not be the only visible indication that a surface is interactive.",
+        "section": "colors"
+      },
+      {
+        "name": "The Meaning Rule",
+        "body": "Colour supports meaning; text, icons, selection marks, weight or borders must also communicate state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Focus Rule",
+        "body": "Visible keyboard focus must survive both themed surfaces and Windows forced colours. The common ring uses a 2px surface separator and a 5px outer spread, with a transparent 3px outline retained for forced-colour rendering. Sidebar focus swaps to its own background and focus tokens.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use semantic theme variables and the current shared primitives for new UI.",
+      "Do use the strong border tier for interactive boundaries and the subtle tier for static divisions.",
+      "Do keep text, icons and structural cues alongside colour-based states.",
+      "Do preserve focus rings, forced-colour fallbacks, reduced motion and reading-control overrides.",
+      "Do reuse the supplied brand assets and self-hosted typefaces."
+    ],
+    "donts": [
+      "Don't hard-code white foregrounds on accent buttons; Night uses a dark foreground.",
+      "Don't revive the legacy paper/ink palette, serif headlines or editorial eyebrow helpers for current screens.",
+      "Don't give a static card interactive semantics without the corresponding handler, boundary and focus treatment.",
+      "Don't treat source inspection or contrast targets as proof of rendered accessibility or WCAG conformance.",
+      "Don't invent a mobile navigation pattern or global text-scaling capability when documenting the current system."
+    ]
+  }
+}

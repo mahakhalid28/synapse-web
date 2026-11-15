@@ -1,0 +1,18 @@
+{
+  "buildPath": "comp",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/index.css"
+        ],
+        "createdAt": "2026-11-15T19:01:23.765Z",
+        "reason": "Agent review: src/index.css uses the 5px Highlight border only inside forced-colors: active to identify the current navigation page alongside an underline; DESIGN.md explicitly preserves this Windows High Contrast accessibility cue."
+      }
+    ]
+  }
+}
