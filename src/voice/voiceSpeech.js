@@ -7,8 +7,6 @@
 // closed, and the next voice turn stops them at once (barge-in).
 
 import { speakText as defaultSpeakText } from "./voiceApi.js";
-import { createStreamAudio, streamSpeech, supportsAudioStreaming } from '../lib/ttsStream.js';
-import { ACCOUNT_CHANGED } from '../lib/accountSession.js';
 
 export const FEEDBACK_KEY = "synapse_voice_feedback";
 const MAX_CHUNK = 350; // the speech endpoint takes up to 400 characters
@@ -118,56 +116,14 @@ export function createSpeaker({ speakText = defaultSpeakText, announce, createAu
     speakingNow.delete(self);
   };
 
-  const play = (url, signal) =>
+  const play = (url) =>
     new Promise((resolve) => {
       const audio = createAudio(url);
-      const finish = (success) => {
-        signal?.removeEventListener('abort', cancel);
-        resolve(success);
-      };
-      const cancel = () => { audio.pause?.(); finish(false); };
-      current = { cancel };
-      signal?.addEventListener('abort', cancel, { once: true });
-      if (signal?.aborted) { cancel(); return; }
-      audio.onended = () => finish(true);
-      audio.onerror = () => finish(false);
-      Promise.resolve(audio.play()).catch(() => finish(false));
+      current = { cancel: () => { audio.pause?.(); resolve(false); } };
+      audio.onended = () => resolve(true);
+      audio.onerror = () => resolve(false);
+      Promise.resolve(audio.play()).catch(() => resolve(false));
     });
-
-  const playStream = (text) => new Promise((resolve, reject) => {
-    const controller = new AbortController();
-    let player = null;
-    const accountChanged = () => { dispose(); resolve(false); };
-    const dispose = () => {
-      controller.abort(); player?.dispose();
-      globalThis.removeEventListener?.(ACCOUNT_CHANGED, accountChanged);
-    };
-    globalThis.addEventListener?.(ACCOUNT_CHANGED, accountChanged);
-    current = { cancel: () => { dispose(); resolve(false); } };
-    streamSpeech('/voice/speak/stream', { text }, {
-      signal: controller.signal,
-      onEvent: async (event) => {
-        if (controller.signal.aborted) return;
-        if (event.type === 'start') {
-          player = await createStreamAudio();
-          if (controller.signal.aborted) { player.dispose(); return; }
-          player.onended = () => { dispose(); resolve(true); };
-          await player.play();
-        } else if (event.type === 'audio') await player.push(event.samples);
-        else if (event.type === 'complete') {
-          if (player) player.finish();
-          else if (event.cached) {
-            const url = await speakText(text, { signal: controller.signal });
-            if (controller.signal.aborted) { URL.revokeObjectURL?.(url); return; }
-            const finished = await play(url, controller.signal);
-            URL.revokeObjectURL?.(url);
-            dispose();
-            resolve(finished);
-          }
-        }
-      },
-    }).catch((error) => { dispose(); reject(error); });
-  });
 
   /** Speak `text`. Resolves when it has been spoken (or handed to the screen reader, or stopped). */
   const say = async (text) => {
@@ -183,12 +139,6 @@ export function createSpeaker({ speakText = defaultSpeakText, announce, createAu
     speakingNow.add(self);
     try {
       for (const piece of chunkText(text)) {
-        if (speakText === defaultSpeakText && supportsAudioStreaming()) {
-          const finished = await playStream(piece);
-          if (mine !== token) return;
-          if (!finished) throw new Error('playback failed');
-          continue;
-        }
         const url = await speakText(piece);
         if (mine !== token) {
           try { URL.revokeObjectURL?.(url); } catch { /* ignore */ }
