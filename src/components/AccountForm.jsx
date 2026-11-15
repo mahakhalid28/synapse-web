@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { login, signup } from "../lib/accountSession";
 import { useAnnouncer } from "../hooks/useAnnouncer";
+import { useVoiceActions } from "../voice/voiceActions";
 
 function AccountForm({ creating, onNavigate, onBack = null }) {
   const id = useId();
@@ -21,7 +22,26 @@ function AccountForm({ creating, onNavigate, onBack = null }) {
     const first = Object.keys(errors).find((key) => key !== "form");
     if (first) form.current?.elements.namedItem(first)?.focus();
     else errorSummary.current?.focus();
-  }, [errors]);
+    // Also announce the errors, so learners using Synapse's own voice (no screen reader) hear what to fix.
+    announce(Object.values(errors).filter(Boolean).join(" "));
+  }, [errors, announce]);
+
+  // Voice: the username can be said or spelled; the password is always typed (never spoken aloud or sent to
+  // speech recognition). After the username, focus moves to the password field, ready for typing.
+  useVoiceActions({
+    ...(busy ? {} : {
+      fill_username: ({ name }) => {
+        setUsername(name);
+        setErrors((current) => {
+          if (!current?.username) return current;
+          const { username: _fixed, ...rest } = current;
+          return Object.keys(rest).length ? rest : null;
+        });
+        setTimeout(() => form.current?.elements.namedItem("password")?.focus(), 0);
+      },
+      ...(creating ? { open_login: () => onNavigate("login") } : { open_signup: () => onNavigate("signup") }),
+    }),
+  });
 
   const submit = async (event) => {
     event.preventDefault();

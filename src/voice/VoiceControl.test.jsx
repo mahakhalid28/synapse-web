@@ -5,8 +5,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { axe } from "jest-axe";
-import VoiceControl from "./VoiceControl";
+import VoiceControl, { SPACE_HOLD_MS, isTypingTarget } from "./VoiceControl";
 import { VoiceAudioContext, createVoiceAudioRegistry } from "./voiceAudio";
+import { VoiceActionsContext, createActionRegistry } from "./voiceActions";
 import "../test/domMatchers.js";
 
 function makePort(initial = {}) {
@@ -47,11 +48,11 @@ function makeDeps({ durationMs = 2400 } = {}) {
   };
 }
 
-function mount({ port = makePort(), onUtterance, durationMs } = {}) {
+function mount({ port = makePort(), onUtterance, durationMs, disabled = false, screen: screenName = null } = {}) {
   const registry = createVoiceAudioRegistry();
   if (port) registry.register(port);
   const { deps, capture } = makeDeps({ durationMs });
-  const utils = render(
+  const element = (props = {}) => (
     <VoiceAudioContext.Provider value={registry}>
       {/* In the app the control sits in the top bar (a banner landmark). */}
       <header>
@@ -60,11 +61,15 @@ function mount({ port = makePort(), onUtterance, durationMs } = {}) {
           onUtterance={onUtterance}
           warmUp={() => {}}
           commandDeps={{ transcribeAudio: async () => ({ text: "", no_speech: true }) }}
+          disabled={disabled}
+          screen={screenName}
+          {...props}
         />
       </header>
-    </VoiceAudioContext.Provider>,
+    </VoiceAudioContext.Provider>
   );
-  return { ...utils, registry, port, deps, capture };
+  const utils = render(element());
+  return { ...utils, registry, port, deps, capture, rerenderWith: (props) => utils.rerender(element(props)) };
 }
 
 const settle = (ms = 200) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
@@ -77,8 +82,22 @@ const press = async (init) => {
 const talkButton = () => screen.getByRole("button", { name: /^(talk|getting ready|listening|working)/i });
 const liveText = () => screen.getByRole("status").textContent;
 
+const space = async (target = document.body, init = {}) => {
+  let notPrevented;
+  act(() => { notPrevented = fireEvent.keyDown(target, { key: " ", code: "Space", ...init }); });
+  await settle(10);
+  return notPrevented;
+};
+const spaceUp = async (target = document.body, init = {}) => {
+  let notPrevented;
+  act(() => { notPrevented = fireEvent.keyUp(target, { key: " ", code: "Space", ...init }); });
+  await settle(10);
+  return notPrevented;
+};
+
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear();
   localStorage.setItem("synapse_voice_feedback", "screenreader"); // replies go through the live region
 });
 afterEach(() => {
@@ -90,8 +109,8 @@ describe("the Talk button", () => {
     mount();
     const button = talkButton();
     expect(button).toHaveAccessibleName("Talk");
-    expect(button).toHaveAttribute("aria-keyshortcuts", "Alt+T");
-    expect(button).toHaveAccessibleDescription(/Alt\+T.*again to stop.*Space/i);
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Space Alt+T");
+    expect(button).toHaveAccessibleDescription(/Space.*again to stop.*hold Space.*Alt\+T/i);
   });
 
   it("changes its name as the turn progresses", async () => {
@@ -173,58 +192,214 @@ describe("Alt+T", () => {
   });
 });
 
-describe("holding Space on the focused button", () => {
-  it("listens while Space is down and handles the words when it is released", async () => {
+describe("Space", () => {
+  it("toggles listening from anywhere on the page: tap to start, tap to stop", async () => {
     const { capture, deps } = mount();
-    const button = talkButton();
-    act(() => { fireEvent.keyDown(button, { key: " " }); });
-    await settle(10);
+    await space();
+    await spaceUp();
     expect(talkButton()).toHaveAccessibleName("Listening…");
-    act(() => { fireEvent.keyUp(button, { key: " " }); });
-    await settle(10);
+    await space();
+    await spaceUp();
     expect(capture.stop).toHaveBeenCalledTimes(1);
     expect(deps.toWav16k).toHaveBeenCalledTimes(1);
     expect(talkButton()).toHaveAccessibleName("Talk");
   });
 
-  it("does not also fire the browser's click on release (that would toggle it back off)", async () => {
+  it("is push-to-talk when held: releasing after a long press ends the turn", async () => {
+    const { capture } = mount();
+    await space();
+    expect(talkButton()).toHaveAccessibleName("Listening…");
+    await settle(SPACE_HOLD_MS + 100);
+    await spaceUp();
+    expect(capture.stop).toHaveBeenCalledTimes(1);
+    expect(talkButton()).toHaveAccessibleName("Talk");
+  });
+
+  it("claims the key on a focused button so the button is not pressed", async () => {
     mount();
-    const button = talkButton();
-    let downPrevented;
-    let upPrevented;
-    act(() => { downPrevented = !fireEvent.keyDown(button, { key: " " }); });
-    await settle(10);
-    act(() => { upPrevented = !fireEvent.keyUp(button, { key: " " }); });
-    await settle(10);
-    expect(downPrevented).toBe(true);
-    expect(upPrevented).toBe(true);
+    const other = document.createElement("button");
+    const clicked = vi.fn();
+    other.addEventListener("click", clicked);
+    document.body.appendChild(other);
+    try {
+      other.focus();
+      expect(await space(other)).toBe(false);
+      expect(await spaceUp(other)).toBe(false);
+      expect(clicked).not.toHaveBeenCalled();
+      expect(talkButton()).toHaveAccessibleName("Listening…");
+    } finally {
+      other.remove();
+    }
+  });
+
+  it.each([
+    ["a text input", () => Object.assign(document.createElement("input"), { type: "text" })],
+    ["a search input", () => Object.assign(document.createElement("input"), { type: "search" })],
+    ["a password input", () => Object.assign(document.createElement("input"), { type: "password" })],
+    ["a textarea", () => document.createElement("textarea")],
+  ])("types a space in %s instead of listening", async (_label, make) => {
+    mount();
+    const field = make();
+    document.body.appendChild(field);
+    try {
+      field.focus();
+      expect(await space(field)).toBe(true);
+      expect(await spaceUp(field)).toBe(true);
+      expect(talkButton()).toHaveAccessibleName("Talk");
+    } finally {
+      field.remove();
+    }
   });
 
   it("ignores key repeat while held", async () => {
     const { deps } = mount();
-    const button = talkButton();
-    act(() => { fireEvent.keyDown(button, { key: " " }); });
-    await settle(10);
-    act(() => { fireEvent.keyDown(button, { key: " ", repeat: true }); });
-    act(() => { fireEvent.keyDown(button, { key: " ", repeat: true }); });
-    await settle(10);
+    await space();
+    await space(document.body, { repeat: true });
+    await space(document.body, { repeat: true });
     expect(deps.createCapture).toHaveBeenCalledTimes(1);
     expect(talkButton()).toHaveAccessibleName("Listening…");
   });
 
-  it("stops a turn that was started with Alt+T when Space is pressed on the button", async () => {
+  it("stops a turn that was started with Alt+T", async () => {
     const { capture } = mount();
     await press();
-    act(() => { fireEvent.keyDown(talkButton(), { key: " " }); });
-    await settle(10);
+    await space();
+    await spaceUp();
     expect(capture.stop).toHaveBeenCalledTimes(1);
   });
 
-  it("does not react to Space with a modifier", async () => {
-    mount();
-    act(() => { fireEvent.keyDown(talkButton(), { key: " ", ctrlKey: true }); });
-    await settle(10);
+  it.each([["Ctrl", { ctrlKey: true }], ["Alt", { altKey: true }], ["Shift", { shiftKey: true }], ["Meta", { metaKey: true }]])(
+    "does not react to Space with %s",
+    async (_label, init) => {
+      mount();
+      expect(await space(document.body, init)).toBe(true);
+      expect(talkButton()).toHaveAccessibleName("Talk");
+    },
+  );
+
+  it("leaves Space alone while Help is open (the control is disabled)", async () => {
+    mount({ disabled: true });
+    expect(await space()).toBe(true);
+    expect(await spaceUp()).toBe(true);
     expect(talkButton()).toHaveAccessibleName("Talk");
+  });
+});
+
+describe("isTypingTarget", () => {
+  it("treats only places that take typed text as typing targets", () => {
+    const make = (tag, attrs = {}) => Object.assign(document.createElement(tag), attrs);
+    expect(isTypingTarget(make("input"))).toBe(true);
+    expect(isTypingTarget(make("textarea"))).toBe(true);
+    expect(isTypingTarget(make("select"))).toBe(true);
+    const box = make("div");
+    box.setAttribute("role", "textbox");
+    expect(isTypingTarget(box)).toBe(true);
+    const radio = make("input");
+    radio.setAttribute("type", "radio");
+    expect(isTypingTarget(radio)).toBe(false);
+    expect(isTypingTarget(make("button"))).toBe(false);
+    expect(isTypingTarget(document.body)).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
+  });
+});
+
+describe("spoken preparation progress", () => {
+  it("holds progress while the lecture plays and says the newest news once it pauses", async () => {
+    let context = { videoId: "v1", preparationProgress: { total: 12, ready: 0, preparing: 12, failed: 0 } };
+    const actions = createActionRegistry();
+    actions.register({ handlers: () => ({}), context: () => context });
+    const port = makePort({ lecture: "playing" });
+    const audio = createVoiceAudioRegistry();
+    audio.register(port);
+    const { deps } = makeDeps();
+    render(
+      <VoiceActionsContext.Provider value={actions}>
+        <VoiceAudioContext.Provider value={audio}>
+          <VoiceControl deps={deps} warmUp={() => {}} playEarcon={() => {}} />
+        </VoiceAudioContext.Provider>
+      </VoiceActionsContext.Provider>,
+    );
+    await settle(1000);
+    expect(liveText()).toBe(""); // lecture playing: nothing said over it
+    context = { ...context, preparationProgress: { total: 12, ready: 1, preparing: 11, failed: 0 } };
+    await settle(1000);
+    expect(liveText()).toBe("");
+    port.state.lecture = "paused";
+    await settle(1000);
+    expect(liveText()).toBe("The first explanation is ready. 1 of 12.");
+  });
+});
+
+describe("the explanation-ready chime", () => {
+  it("chimes once when the lecture offers a newly ready explanation, and not for other questions", async () => {
+    let context = {};
+    const actions = createActionRegistry();
+    actions.register({ handlers: () => ({}), context: () => context });
+    const audio = createVoiceAudioRegistry();
+    audio.register(makePort());
+    const { deps } = makeDeps();
+    const playEarcon = vi.fn();
+    render(
+      <VoiceActionsContext.Provider value={actions}>
+        <VoiceAudioContext.Provider value={audio}>
+          <VoiceControl deps={deps} warmUp={() => {}} playEarcon={playEarcon} />
+        </VoiceAudioContext.Provider>
+      </VoiceActionsContext.Provider>,
+    );
+    context = { explanationQuestion: { id: "q1", choices: ["wait", "resume"] },
+      questionPrompt: "Lecture paused. The standard explanation for moment 3 is still preparing." };
+    await settle(400);
+    expect(playEarcon).not.toHaveBeenCalledWith("ready");
+    context = { explanationQuestion: { id: "q2", choices: ["listen", "later"] },
+      questionPrompt: "Lecture paused. Moment 3. The standard explanation is ready. Would you like to listen now?" };
+    await settle(400);
+    await settle(1000);
+    expect(playEarcon.mock.calls.filter(([kind]) => kind === "ready")).toHaveLength(1);
+  });
+});
+
+describe("screen introductions", () => {
+  it("introduces a screen when it opens, in full the first time and briefly after that", async () => {
+    const { rerenderWith } = mount({ screen: "bookmarks" });
+    expect(liveText()).toBe("");
+    await settle(700);
+    expect(liveText()).toMatch(/^Bookmarks, the explanations you saved\..*Press Space/);
+    rerenderWith({ screen: "home" });
+    await settle(700);
+    expect(liveText()).toMatch(/^Home\. Synapse turns lecture videos/);
+    rerenderWith({ screen: "bookmarks" });
+    await settle(700);
+    expect(liveText()).toBe("Bookmarks.");
+  });
+
+  it("says how many items the screen registered for voice", async () => {
+    const actions = createActionRegistry();
+    actions.register({ handlers: () => ({}), context: () => ({ items: [{ position: 1 }, { position: 2 }, { position: 3 }] }) });
+    const audio = createVoiceAudioRegistry();
+    audio.register(makePort());
+    const { deps } = makeDeps();
+    render(
+      <VoiceActionsContext.Provider value={actions}>
+        <VoiceAudioContext.Provider value={audio}>
+          <VoiceControl deps={deps} warmUp={() => {}} screen="library" />
+        </VoiceAudioContext.Provider>
+      </VoiceActionsContext.Provider>,
+    );
+    await settle(700);
+    expect(liveText()).toMatch(/3 items are listed\. Press Space and say read my saved items, or play the audio of the first item\./);
+  });
+
+  it("does not talk over the microphone", async () => {
+    mount({ screen: "home" });
+    await press(); // listening before the introduction is due
+    await settle(700);
+    expect(liveText()).toBe("");
+  });
+
+  it("is not given while Help is open", async () => {
+    mount({ screen: "home", disabled: true });
+    await settle(700);
+    expect(liveText()).toBe("");
   });
 });
 

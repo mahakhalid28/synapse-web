@@ -1,6 +1,7 @@
 // Spoken replies. Two ways to give feedback, behind one function so either can replace the other:
-//   "tts"          the backend's existing text-to-speech (played here), falling back to the screen reader
-//                  if speech is unavailable (offline, server down)
+//   "tts"          the backend's text-to-speech (played here). If that fails (server down, offline), the
+//                  system's own voice speaks it (in Electron on Windows, the offline Windows voices), and
+//                  only if that is unavailable too does it go to the screen reader's live region
 //   "screenreader" the page's polite live region only (for people who prefer their own screen reader)
 // The choice is a stored preference; the default is "tts". Replies are only spoken after the microphone has
 // closed, and the next voice turn stops them at once (barge-in).
@@ -12,6 +13,67 @@ import { ACCOUNT_CHANGED } from '../lib/accountSession.js';
 export const FEEDBACK_KEY = "synapse_voice_feedback";
 const MAX_CHUNK = 350; // the speech endpoint takes up to 400 characters
 const MAX_SPOKEN = 1500; // never read out more than this at once
+
+// Shared across every speaker (the Talk control's, the lecture conversation's, screen introductions), so the
+// live-region narrator can avoid talking over any of them and never repeats what one of them just said.
+const speakingNow = new Set();
+const recentlySaid = new Map(); // normalised text -> time it was said
+const RECENT_MS = 8000;
+const normalise = (text) => String(text).replace(/\s+/g, " ").trim().toLowerCase();
+
+function remember(text) {
+  const now = Date.now();
+  for (const [said, at] of recentlySaid) if (now - at > RECENT_MS * 4) recentlySaid.delete(said);
+  recentlySaid.set(normalise(text), now);
+}
+
+/** True while any speaker is preparing or playing speech. */
+export function anySpeakerBusy() {
+  return speakingNow.size > 0;
+}
+
+/** True when `text` (or a sentence containing it, or contained in it) was said in the last few seconds. */
+export function spokenRecently(text, withinMs = RECENT_MS) {
+  const wanted = normalise(text);
+  if (!wanted) return false;
+  const now = Date.now();
+  for (const [said, at] of recentlySaid) {
+    if (now - at > withinMs) continue;
+    if (said === wanted) return true;
+    if (wanted.length >= 12 && said.length >= 12 && (said.includes(wanted) || wanted.includes(said))) return true;
+  }
+  return false;
+}
+
+/**
+ * The browser's built-in speech (Web Speech API), used when the backend voice fails.
+ * Returns { done: Promise<boolean>, cancel() } or null when the system has no speech.
+ */
+export function systemSpeech(text) {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+  const Utterance = typeof window !== "undefined" ? window.SpeechSynthesisUtterance : undefined;
+  if (!synth || !Utterance) return null;
+  let finish;
+  const done = new Promise((resolve) => { finish = resolve; });
+  try {
+    const utterance = new Utterance(text);
+    utterance.lang = "en-US";
+    utterance.rate = 0.95; // a touch slower than default, closer to the Piper reply pace
+    utterance.onend = () => finish(true);
+    utterance.onerror = () => finish(false);
+    synth.cancel();
+    synth.speak(utterance);
+  } catch {
+    return null;
+  }
+  return { done, cancel: () => { try { synth.cancel(); } catch { /* ignore */ } finish(false); } };
+}
+
+/** Test helper: forget what was said and who is speaking. */
+export function resetSpeechMemory() {
+  speakingNow.clear();
+  recentlySaid.clear();
+}
 
 export function feedbackMode() {
   try {
@@ -43,15 +105,17 @@ export function chunkText(text, max = MAX_CHUNK) {
   return chunks;
 }
 
-export function createSpeaker({ speakText = defaultSpeakText, announce, createAudio = (url) => new Audio(url), mode = feedbackMode }) {
+export function createSpeaker({ speakText = defaultSpeakText, announce, createAudio = (url) => new Audio(url), mode = feedbackMode, fallbackSpeech = systemSpeech }) {
   let token = 0;
   let current = null;
   let last = "";
+  const self = {}; // identity in the shared "speaking now" set
 
   const stop = () => {
     token += 1;
     current?.cancel();
     current = null;
+    speakingNow.delete(self);
   };
 
   const play = (url, signal) =>
@@ -109,12 +173,14 @@ export function createSpeaker({ speakText = defaultSpeakText, announce, createAu
   const say = async (text) => {
     if (!text) return;
     last = text;
+    remember(text);
     stop();
     const mine = token;
     if (mode() === "screenreader") {
       announce(text);
       return;
     }
+    speakingNow.add(self);
     try {
       for (const piece of chunkText(text)) {
         if (speakText === defaultSpeakText && supportsAudioStreaming()) {
@@ -134,9 +200,19 @@ export function createSpeaker({ speakText = defaultSpeakText, announce, createAu
         if (!finished) throw new Error("playback failed");
       }
     } catch {
-      if (mine === token) announce(text); // speech unavailable: the screen reader says it instead
+      if (mine !== token) return;
+      // The backend voice is unavailable: the system's own voice says it; failing that, the screen reader.
+      const spoken = fallbackSpeech?.(text.replace(/\s+/g, " ").trim().slice(0, MAX_SPOKEN));
+      if (spoken) {
+        current = { cancel: spoken.cancel };
+        if (await spoken.done) return;
+        if (mine !== token) return;
+      }
+      announce(text);
+    } finally {
+      if (mine === token) speakingNow.delete(self);
     }
   };
 
-  return { say, stop, last: () => last };
+  return { say, stop, last: () => last, isSpeaking: () => speakingNow.has(self) };
 }
