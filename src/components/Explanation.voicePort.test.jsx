@@ -9,6 +9,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
 import { render, fireEvent, act, screen } from "@testing-library/react";
 import Explanation from "./Explanation";
+// These media-ownership tests begin after startup readiness; startup has its own integration tests.
+vi.mock("../hooks/useLecturePlaybackGate", () => ({
+  useLecturePlaybackGate: () => ({ ready: true, error: null, retryable: false }),
+}));
 import { VoiceAudioContext, createVoiceAudioRegistry } from "../voice/voiceAudio";
 import { VoiceTurnController } from "../voice/useVoiceTurn";
 import { TURN } from "../voice/voiceTurn";

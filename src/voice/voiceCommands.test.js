@@ -4,6 +4,7 @@ import { createActionRegistry } from "./voiceActions";
 import { chunkText, createSpeaker } from "./voiceSpeech";
 import { interpretText, speakText, transcribeAudio } from "./voiceApi";
 import { MESSAGES } from "./voiceMessages";
+import { decideRestore } from "./voiceTurn";
 
 // ── Command handler ──────────────────────────────────────────────────────────
 
@@ -25,6 +26,22 @@ function setup({ handlers = {}, describe = () => ({ screen: "explanation", video
   return { handle, deps, said, speaker };
 }
 const utterance = { wav: new Blob(["w"]), before: null };
+
+it("preserves the playback change after skipping a playing explanation by voice", async () => {
+  const skip = vi.fn();
+  const env = setup({
+    handlers: { skip_explanation: skip },
+    heard: { text: "skip the explanation", language: "en" },
+    responses: [execute("skip_explanation")],
+  });
+  const outcome = await env.handle(utterance);
+  expect(skip).toHaveBeenCalledTimes(1);
+  expect(outcome).toEqual({ playbackCommand: "skip_explanation" });
+  const restore = decideRestore({ lecture: "paused", explanation: "playing", pauseOwner: "intervention" }, outcome);
+  expect(restore.explanation).toBe(false);
+  expect(restore.restoreOwner).toBe(false);
+  expect(env.said).toEqual([]);
+});
 
 describe("reading a list aloud", () => {
   const results = (n) => Array.from({ length: n }, (_, i) => ({ ref: `v${i + 1}`, kind: "result", label: `Lecture ${i + 1}.`, position: i + 1 }));
@@ -387,6 +404,74 @@ describe("confirmation", () => {
 });
 
 describe("questions and other decisions", () => {
+  it("invites a question, then sends the next utterance directly to lecture Q&A at the original position", async () => {
+    let lectureSeconds = 42.5;
+    const env = setup({
+      describe: () => ({ screen: "explanation", videoId: "aircAruvnKk", lectureSeconds }),
+      heard: { text: "I want to ask a question", language: "en" },
+    });
+    expect(await env.handle(utterance)).toEqual({ followUp: true });
+    expect(env.said).toEqual(["Ask a question."]);
+    expect(env.deps.askQuestion).not.toHaveBeenCalled();
+    lectureSeconds = 60;
+    env.deps.transcribeAudio.mockResolvedValue({ text: "Why is the direction of current opposite?", language: "en" });
+    expect(await env.handle(utterance)).toEqual({});
+    expect(env.deps.askQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      videoId: "aircAruvnKk", currentTimeSeconds: 42.5, question: "Why is the direction of current opposite?",
+    }));
+    expect(env.deps.interpretText).not.toHaveBeenCalled();
+    expect(env.said.at(-1)).toBe("Because it saturates.");
+  });
+
+  it("requires an open lecture before inviting a question", async () => {
+    const env = setup({ describe: () => ({ screen: "home" }), heard: { text: "I want to ask a question", language: "en" } });
+    expect(await env.handle(utterance)).toEqual({});
+    expect(env.said).toEqual([MESSAGES.noLecture]);
+    expect(env.deps.askQuestion).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancel", "stop", "never mind"])("cancels the question invitation on '%s'", async (text) => {
+    const env = setup({ heard: { text: "I want to ask a question", language: "en" } });
+    await env.handle(utterance);
+    env.deps.transcribeAudio.mockResolvedValue({ text, language: "en" });
+    expect(await env.handle(utterance)).toEqual({});
+    expect(env.deps.askQuestion).not.toHaveBeenCalled();
+    expect(env.said.at(-1)).toBe(MESSAGES.cancelled);
+  });
+
+  it("clears a question invitation when voice control is interrupted", async () => {
+    const env = setup({ heard: { text: "I want to ask a question", language: "en" }, responses: [execute("help")] });
+    await env.handle(utterance);
+    env.handle.cancel();
+    env.deps.transcribeAudio.mockResolvedValue({ text: "help", language: "en" });
+    await env.handle(utterance);
+    expect(env.deps.interpretText).toHaveBeenCalledTimes(1);
+    expect(env.deps.askQuestion).not.toHaveBeenCalled();
+  });
+
+  it("clears a question invitation after an empty follow-up", async () => {
+    const env = setup({ heard: { text: "I want to ask a question", language: "en" }, responses: [execute("help")] });
+    await env.handle(utterance);
+    env.deps.transcribeAudio.mockResolvedValueOnce({ text: "", no_speech: true });
+    await env.handle({ ...utterance, auto: true });
+    env.deps.transcribeAudio.mockResolvedValue({ text: "help", language: "en" });
+    await env.handle(utterance);
+    expect(env.deps.interpretText).toHaveBeenCalledTimes(1);
+    expect(env.deps.askQuestion).not.toHaveBeenCalled();
+  });
+
+  it("does not carry a question invitation into another lecture", async () => {
+    let videoId = "aircAruvnKk";
+    const env = setup({ describe: () => ({ screen: "explanation", videoId }),
+      heard: { text: "I want to ask a question", language: "en" }, responses: [execute("help")] });
+    await env.handle(utterance);
+    videoId = "otherVideo1";
+    env.deps.transcribeAudio.mockResolvedValue({ text: "help", language: "en" });
+    await env.handle(utterance);
+    expect(env.deps.interpretText).toHaveBeenCalledTimes(1);
+    expect(env.deps.askQuestion).not.toHaveBeenCalled();
+  });
+
   it("sends a question to the existing lecture Q&A with the lecture, time and moment, and speaks the answer", async () => {
     const env = setup({
       describe: () => ({ screen: "explanation", videoId: "aircAruvnKk", currentMomentRef: "3f2b8c1e-5d4a-4e7b-9a10-2c6d8e9f0a1b", lectureSeconds: 42.5 }),
@@ -396,6 +481,24 @@ describe("questions and other decisions", () => {
     expect(env.deps.askQuestion).toHaveBeenCalledWith({
       videoId: "aircAruvnKk", question: "why is it flat", currentTimeSeconds: 42.5, interventionId: "3f2b8c1e-5d4a-4e7b-9a10-2c6d8e9f0a1b",
     });
+    expect(env.said.at(-1)).toBe("Because it saturates.");
+  });
+
+  it("advertises lecture Q&A so the interpreter can route a spoken content question", async () => {
+    const question = "why is the direction of current opposite ?";
+    const env = setup({ heard: { text: question, language: "en" } });
+    env.deps.interpretText.mockImplementation(async (request) => {
+      if (!request.context.available_actions.includes("ask_question")) {
+        return reply("unsupported", { message_key: "not_understood" });
+      }
+      return reply("ask_question", { action: "ask_question", args: { question } });
+    });
+    await env.handle(utterance);
+    expect(env.deps.interpretText).toHaveBeenCalledWith(expect.objectContaining({
+      text: question,
+      context: expect.objectContaining({ available_actions: expect.arrayContaining(["ask_question"]) }),
+    }), expect.any(Object));
+    expect(env.deps.askQuestion).toHaveBeenCalledWith(expect.objectContaining({ question, videoId: "aircAruvnKk" }));
     expect(env.said.at(-1)).toBe("Because it saturates.");
   });
 

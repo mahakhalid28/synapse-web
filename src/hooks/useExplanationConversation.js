@@ -17,8 +17,8 @@ export function spokenTimestamp(timestamp = "0:00") {
   return `${minutes} minutes ${seconds} seconds`;
 }
 
-export function newLectureConversation(videoId = null) {
-  const session = { videoId, id: crypto.randomUUID(), heard: new Set(), encountered: new Set(), pending: new Map(), deferred: new Set(), statuses: new Map(),
+export function newLectureConversation(videoId = null, { freshPlayback = false } = {}) {
+  const session = { videoId, freshPlayback, id: crypto.randomUUID(), heard: new Set(), encountered: new Set(), pending: new Map(), deferred: new Set(), statuses: new Map(),
     triggered: new Set(), selections: new Map(), returnPosition: null, review: null, reviewFinished: false,
     question: null, waiting: null, sequence: 0, requests: new Map(), requestIds: new Map(), progress: new Map() };
   session.selectMoment = (id) => {
@@ -89,16 +89,19 @@ export function useExplanationConversation(options) {
       }
     }
     latest.current.registerPoint?.(point, previousPoint?.id);
-    session.triggered.add(point.id);
-    session.encountered.add(point.id);
+    // Fresh playback reuses saved content, but only this run owns playback progress.
+    if (!session.freshPlayback) {
+      session.triggered.add(point.id);
+      session.encountered.add(point.id);
+    }
     const previousRequestId = session.requestIds.get(key);
     session.requestIds.set(key, item.id);
     session.requests.set(key, { point, depth });
-    if (item.heard) session.heard.add(key);
+    if (!session.freshPlayback && item.heard) session.heard.add(key);
     if (session.heard.has(key)) session.pending.delete(key);
-    if (item.dismissed) session.deferred.add(key);
+    if (!session.freshPlayback && item.dismissed) session.deferred.add(key);
     else if (previousRequestId !== item.id) session.deferred.delete(key);
-    if (!session.heard.has(key) && !session.pending.has(key)) session.pending.set(key, { ...pending, point, depth,
+    if (!session.freshPlayback && !session.heard.has(key) && !session.pending.has(key)) session.pending.set(key, { ...pending, point, depth,
       waiting: pending?.waiting ?? false, notified: pending?.notified ?? false });
     let state = item.status;
     if (state === "waiting_for_context") state = "pending";
@@ -471,7 +474,8 @@ export function useExplanationConversation(options) {
         if (!session.heard.has(keyOf(point.id, "standard"))) items.set(keyOf(point.id, "standard"), { point, depth: "standard" });
       }
       for (const [key, item] of session.pending) if (!session.heard.has(key)) items.set(key, item);
-      for (const [key, item] of session.requests) if (!session.heard.has(key)) items.set(key, item);
+      for (const [key, item] of session.requests) if (!session.heard.has(key)
+        && (!session.freshPlayback || session.encountered.has(item.point.id))) items.set(key, item);
       session.review = [...items.values()].sort((a, b) => spokenTimestamp(a.point.timestamp).localeCompare(spokenTimestamp(b.point.timestamp), undefined, { numeric: true }));
       reviewNext();
     }

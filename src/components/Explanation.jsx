@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { newLectureConversation, useExplanationConversation } from "../hooks/useExplanationConversation";
+import { useLecturePlaybackGate } from "../hooks/useLecturePlaybackGate";
 import jsPDF from "jspdf";
 import Sidebar from "./Sidebar";
 import {
@@ -178,6 +179,10 @@ export default function Explanation({
   const [allPoints, setAllPoints] = useState(
     initialPoint ? [initialPoint] : [],
   );
+  const [pointsLoadedVideo, setPointsLoadedVideo] = useState(null);
+  const [pointsLoadError, setPointsLoadError] = useState(null);
+  const [pointsLoadVersion, setPointsLoadVersion] = useState(0);
+  const [startupIntroduction, setStartupIntroduction] = useState("");
   const [videoTitle, setVideoTitle] = useState(
     initialLectureMetadata.videoTitle || "",
   );
@@ -299,6 +304,29 @@ export default function Explanation({
   const [isProcessing, setIsProcessing] = useState(Boolean(promise));
   const [processingError, setProcessingError] = useState(null);
   const [processingErrorRetryable, setProcessingErrorRetryable] = useState(true);
+  const firstPoint = [...allPoints].filter((point) => point.origin !== "manual" && point.id !== "saved-position")
+    .sort((a, b) => parseTimestampToSeconds(a.timestamp) - parseTimestampToSeconds(b.timestamp))[0];
+  const startupPreparationKey = `${videoId}::${firstPoint?.id}::${initialMode}`;
+  const [startupPreparation, setStartupPreparation] = useState(null);
+  const pointsReady = pointsLoadedVideo === videoId && !isProcessing && !processingError && !pointsLoadError
+    && !["cancelled", "cancelling", "failed"].includes(processingStatus?.status);
+  const playbackGate = useLecturePlaybackGate({ videoId, firstPointId: firstPoint?.id, pointsReady,
+    depth: initialMode, readOnly, savedItems,
+    preparation: startupPreparation?.key === startupPreparationKey ? startupPreparation.item : null });
+  const playbackAllowed = playbackGate.ready;
+  const playbackAllowedRef = useRef(playbackAllowed);
+  const startupError = !playbackAllowed && (processingError || pointsLoadError || (pointsReady ? playbackGate.error ||
+    (effectivePreparationPhase === "unavailable" ? "The first explanation could not be checked. Check preparation again." :
+      effectivePreparationPhase === "stopped" ? "Preparation is taking longer than expected. Check preparation again to keep waiting." : null) : null));
+  const processingStopped = ["cancelled", "cancelling"].includes(processingStatus?.status);
+  const startupMessage = startupError || (processingStopped ? "Lecture preparation is paused. Resume processing before playing." : !pointsReady
+    ? "Preparing intervention points…"
+    : playbackAllowed ? "Lecture ready. Press Play to begin." : "Preparing the first explanation…");
+  const startupMessageRef = useRef(startupMessage);
+  useEffect(() => {
+    playbackAllowedRef.current = playbackAllowed;
+    startupMessageRef.current = startupMessage;
+  }, [playbackAllowed, startupMessage]);
 
   // Audio playback — real HTML5 Audio via TTS backend
   const audioRef = useRef(null);
@@ -477,6 +505,7 @@ export default function Explanation({
       return audio.play().then(() => setIsPlaying(true));
     },
     resume: (position) => {
+      if (!playbackAllowedRef.current) { announce(startupMessageRef.current); return; }
       if (voiceControlRef.current?.lectureStarted()) return;
       audioRef.current?.pause();
       setIsPlaying(false);
@@ -555,18 +584,26 @@ export default function Explanation({
   // processing to finish, since the backend has nothing to return until then.
   useEffect(() => {
     if (isProcessing || processingError || processingStatus?.status === "cancelled") return;
+    let cancelled = false;
+    // Reset readiness when starting an external reload of the complete point list.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPointsLoadedVideo(null);
+    setPointsLoadError(null);
     const account = captureAccount();
     (readOnly ? getSavedLecture(videoId).then(async (items) => {
       setSavedItems(items);
       let result;
       try { result = await getInterventionPoints(jobId, videoId); }
-      catch { result = { points: [], videoTitle: lectureMetadata?.videoTitle || "Saved lecture" }; }
+      catch { result = { points: [], videoTitle: lectureMetadata?.videoTitle || "Saved lecture", pointsUnavailable: true }; }
       const byId = new Map(result.points.map((point) => [point.id, point]));
       for (const item of items) {
         byId.set(item.pointId, { ...byId.get(item.pointId), id: item.pointId, title: item.title,
           category: item.category, timestamp: item.timestamp, _frame_path: item.frameUrl });
       }
-      if (!byId.size) byId.set("saved-position", { id: "saved-position", title: "Lecture position", category: "text", timestamp: formatTimestamp(startSeconds || 0) });
+      if (!byId.size) {
+        result.pointsUnavailable = true;
+        byId.set("saved-position", { id: "saved-position", title: "Lecture position", category: "text", timestamp: formatTimestamp(startSeconds || 0) });
+      }
       return { ...result, points: [...byId.values()].sort((a, b) => parseTimestampToSeconds(a.timestamp) - parseTimestampToSeconds(b.timestamp)) };
     }) : getInterventionPoints(jobId, videoId).then(async (result) => {
       if (!API_MOCK_MODE) {
@@ -575,12 +612,14 @@ export default function Explanation({
       return result;
     }))
       .then((result) => {
+        if (cancelled) return;
+        if (result.pointsUnavailable) setPointsLoadError("The complete intervention points could not be loaded. Check again before playing the lecture.");
+        else setPointsLoadedVideo(videoId);
         setAllPoints(result.points);
         if (result.points.length === 0) {
           setProcessingError("No intervention moments were found for this lecture.");
         } else {
           const n = result.points.length;
-          let intro = "";
           // First lecture ever only: say how the session works, once, in the
           // same single message (never a second announcement).
           try {
@@ -589,8 +628,7 @@ export default function Explanation({
               !localStorage.getItem("synapse_intro_seen")
             ) {
               localStorage.setItem("synapse_intro_seen", "1");
-              intro =
-                " Press Play lecture to begin. It pauses at each visual; then read the explanation below or use the Listen button. Press Alt plus K for keyboard shortcuts.";
+              setStartupIntroduction(" It pauses at each visual; then read the explanation below or use the Listen button. Press Alt plus K for keyboard shortcuts.");
             }
           } catch {
             // storage unavailable — skip the one-time hint
@@ -602,7 +640,7 @@ export default function Explanation({
             result.points.findIndex((p) => p.id === pointId),
           );
           announce(
-            `Lecture ready. ${n} moment${n === 1 ? "" : "s"} found. Showing moment ${startIdx + 1}: ${result.points[startIdx].title}.${intro}`,
+            `${n} moment${n === 1 ? "" : "s"} found. Showing moment ${startIdx + 1}: ${result.points[startIdx].title}.`,
           );
         }
         if (result.videoTitle) setVideoTitle(result.videoTitle);
@@ -614,6 +652,8 @@ export default function Explanation({
         setMetadataWarning(result.metadataError || null);
       })
       .catch((err) => {
+        if (cancelled) return;
+        setPointsLoadError(err?.message || "Could not load this lecture's intervention points.");
         console.error("Failed to load points:", err);
         if (readOnly) {
           setStorageError(err?.message || "Saved lecture could not be loaded.");
@@ -624,7 +664,8 @@ export default function Explanation({
           err?.message || "Could not load this lecture's intervention moments.",
         );
       });
-  }, [jobId, videoId, pointId, isProcessing, processingError, processingStatus?.status, readOnly, lectureMetadata?.videoTitle, savedLoadVersion, startSeconds]);
+    return () => { cancelled = true; };
+  }, [jobId, videoId, pointId, isProcessing, processingError, processingStatus?.status, readOnly, lectureMetadata?.videoTitle, savedLoadVersion, startSeconds, pointsLoadVersion]);
 
   // One cancellable poll loop covers every intervention in the selected
   // lecture/mode. It stops once all known points are ready or failed, and is
@@ -653,6 +694,11 @@ export default function Explanation({
           signal: controller.signal,
         });
         if (cancelled) return;
+        const startupResult = mode === initialMode || playbackAllowedRef.current ? result
+          : await getExplanationPreparationStatus(videoId, initialMode, { signal: controller.signal });
+        if (cancelled) return;
+        const startupItem = startupResult.items.find((item) => item.intervention_id === firstPoint?.id);
+        if (mode === initialMode || !playbackAllowedRef.current) setStartupPreparation({ key: startupPreparationKey, item: startupItem });
         const next = new Map(
           result.items
             .filter((item) => pointIds.has(item.intervention_id))
@@ -666,7 +712,7 @@ export default function Explanation({
           const status = next.get(id)?.status;
           return status === "ready" || status === "failed" || status === "cancelled";
         });
-        if (terminal) return;
+        if (terminal && (playbackAllowedRef.current || ["ready", "failed", "cancelled"].includes(startupItem?.status))) return;
       } catch (error) {
         if (cancelled || error?.name === "AbortError") return;
         setPreparationContext(preparationContextKey);
@@ -687,13 +733,13 @@ export default function Explanation({
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [videoId, mode, preparationPointKey, preparationContextKey, preparationPollVersion, isProcessing, processingError, processingStatus?.status, readOnly]);
+  }, [videoId, mode, initialMode, firstPoint?.id, startupPreparationKey, preparationPointKey, preparationContextKey, preparationPollVersion, isProcessing, processingError, processingStatus?.status, readOnly]);
 
   // Initialize the real YouTube player once the API is loaded and the
   // container is in the DOM. Kept alive for the life of this videoId —
   // controlled imperatively (pauseVideo/playVideo/seekTo) from elsewhere.
   useEffect(() => {
-    if (!videoId || !playerContainerRef.current) return;
+    if (!videoId || !playbackAllowed || !playerContainerRef.current) return;
     let cancelled = false;
     let player = null;
 
@@ -715,7 +761,7 @@ export default function Explanation({
             // Help guard: a PLAYING event that arrives while Help is open (buffering finishing, a
             // play command that was already on its way) is undone every time it happens. The
             // pause owner is left as it is and nothing is confirmed or announced.
-            const heldByHelp = e.data === YT_PLAYING && (helpOpenRef.current || conversationRef.current.isBlocked());
+            const heldByHelp = e.data === YT_PLAYING && (!playbackAllowedRef.current || helpOpenRef.current || conversationRef.current.isBlocked());
             if (heldByHelp) {
               e.target?.pauseVideo?.();
             } else if (e.data === YT_PLAYING) {
@@ -739,7 +785,7 @@ export default function Explanation({
       setPlayerState("unstarted");
       player?.destroy?.();
     };
-  }, [videoId]);
+  }, [videoId, playbackAllowed]);
 
   // Opened on a specific moment (Timeline, Library, Bookmarks): start the
   // video there instead of at 0:00, so what plays matches the explanation on
@@ -1012,7 +1058,7 @@ export default function Explanation({
           if (cancelled || error?.name === "AbortError") return;
           console.error("Failed to load prepared explanation:", error);
           setExplanationLoadError(
-            "The prepared explanation could not be loaded. You can continue watching or check again.",
+            "The prepared explanation could not be loaded. Check again to retry.",
           );
         })
         .finally(() => {
@@ -1159,6 +1205,7 @@ export default function Explanation({
   // doesn't re-read a text-content change on the focused button (only an
   // aria-label change) — so the new state is announced explicitly.
   const handleLectureToggle = () => {
+    if (!playbackAllowed) { announce(startupMessage); return; }
     const player = playerRef.current;
     if (!player) return;
     if (playerState === "playing" || playerState === "buffering") {
@@ -1179,6 +1226,7 @@ export default function Explanation({
   // the pause. If Synapse's explanation audio is still playing, stop it
   // first so it never overlaps the lecture audio once the video resumes.
   const handleResumeVideo = () => {
+    if (!playbackAllowed) { announce(startupMessage); return; }
     if (voiceControlRef.current?.lectureStarted()) return;
     conversationRef.current.resume();
   };
@@ -1230,6 +1278,7 @@ export default function Explanation({
   };
 
   const handleSkipExplanation = () => {
+    if (!playbackAllowed) { announce(startupMessage); return; }
     announce("Explanation skipped. Resuming the lecture.");
     conversationRef.current.skip();
   };
@@ -1501,6 +1550,11 @@ export default function Explanation({
     };
   }, [registerHelpGuard]);
 
+  useEffect(() => {
+    if (helpOpenRef.current || voiceControlRef.current?.isRecording?.()) return;
+    announce(startupMessage + (playbackAllowed ? startupIntroduction : ""));
+  }, [startupMessage, playbackAllowed, startupIntroduction]);
+
   // Explanation remains the sole owner of both media players and pause
   // ownership. Voice Control can only snapshot, pause and restore them through
   // this narrow port, and it consults Voice Notes before opening a microphone.
@@ -1519,6 +1573,7 @@ export default function Explanation({
     }),
     pause: () => { pauseLectureAudio(); voiceControlRef.current?.stopPlayback?.(); },
     restore: ({ lecture, explanation: restoreExplanation, pauseOwner: owner }) => {
+      if (lecture && !playbackAllowedRef.current) return;
       if (conversationRef.current.question || conversationRef.current.waiting) return;
       if (lecture && conversationRef.current.isBlocked()) return;
       setPauseOwner(owner);
@@ -1559,6 +1614,17 @@ export default function Explanation({
   };
   const onOpenTimeline = (id) => leaveScreen(() => onOpenTimelineRaw(id));
   const onStartPractice = () => leaveScreen(() => onStartPracticeRaw());
+  const retryStartup = async () => {
+    if (pointsLoadError || (!isProcessing && !firstPoint)) {
+      setProcessingError(null);
+      setPointsLoadVersion((value) => value + 1);
+    } else if (processingError && onRetryProcessingRaw) retryProcessing();
+    else if (readOnly) setSavedLoadVersion((value) => value + 1);
+    else {
+      await playbackGate.retry();
+      setPreparationPollVersion((value) => value + 1);
+    }
+  };
 
   // ---- Derived data --------------------------------------------------------
 
@@ -1772,6 +1838,7 @@ export default function Explanation({
       open_timeline: () => onOpenTimeline(effectiveActivePointId),
       skip_explanation: () => handleSkipExplanation(),
       retry_explanation: () => {
+        if (!playbackAllowed && startupError) { retryStartup(); return; }
         if (!readOnly && !requestSessionId && onReconnectSession) return onReconnectSession();
         if (conversationRef.current.question?.choices.includes("retry")) {
           conversationRef.current.answer("retry");
@@ -1808,7 +1875,9 @@ export default function Explanation({
 
   const isLecturePlaying =
     playerState === "playing" || playerState === "buffering";
-  const lectureControlLabel = !playerReady
+  const lectureControlLabel = !playbackAllowed
+    ? "Play lecture"
+    : !playerReady
     ? "Loading lecture player…"
     : isLecturePlaying
       ? "Pause lecture"
@@ -1819,7 +1888,7 @@ export default function Explanation({
           : "Resume lecture";
   // Honest, state-derived copy — "Playing." only when it really is.
   const statusText =
-    pauseOwner === "intervention"
+    !playbackAllowed ? startupMessage : pauseOwner === "intervention"
       ? presentationMode === "study"
         ? isPlaying
           ? "Explaining this moment…"
@@ -2266,7 +2335,9 @@ export default function Explanation({
                 role="region"
                 aria-label="Lecture video"
                 className={
-                  presentationMode === "study"
+                  !playbackAllowed
+                    ? "min-h-[240px] rounded-radius-lg bg-surface-muted border border-border-subtle flex items-center justify-center px-6 py-8"
+                    : presentationMode === "study"
                     ? "aspect-video rounded-radius-lg overflow-hidden relative bg-surface-muted border border-border-subtle shadow-card"
                     : "sr-only"
                 }
@@ -2276,7 +2347,7 @@ export default function Explanation({
                    interrupt reading) — audio keeps playing, since inert
                    doesn't touch media. Study Mode keeps the player fully
                    interactive. */
-                inert={presentationMode === "study" ? undefined : ""}
+                inert={!playbackAllowed || presentationMode === "study" ? undefined : ""}
               >
                 {/* This wrapper — not the ref'd div below — is what gets the
                 focus transform. YT.Player *replaces* playerContainerRef's
@@ -2285,7 +2356,7 @@ export default function Explanation({
                 anything visible; this wrapper is never touched by the
                 YouTube API and stays fully React-owned. */}
                 <div
-                  className="w-full h-full"
+                  className={playbackAllowed ? "w-full h-full" : "hidden"}
                   style={{
                     transform:
                       focusActive && focusRegion
@@ -2296,7 +2367,26 @@ export default function Explanation({
                 >
                   <div ref={playerContainerRef} className="w-full h-full" />
                 </div>
-                {presentationMode === "study" && !playerReady && (
+                {!playbackAllowed && (
+                  <div className="w-full max-w-lg text-text-primary">
+                    <h2 className="text-[22px] font-bold mb-4">Preparing your lecture</h2>
+                    <ul className="space-y-2 text-[16px] leading-relaxed">
+                      <li>{pointsReady ? "Intervention points loaded" : "Preparing intervention points…"}</li>
+                      <li>{pointsReady ? "Preparing the first explanation…" : "First explanation: waiting for intervention points"}</li>
+                    </ul>
+                    <p className="mt-4 text-[15px] text-text-secondary">Playback will be available when preparation is complete.</p>
+                    {(startupError || processingStopped) && <p className="mt-4 text-[15px] text-error">{startupMessage}</p>}
+                    {startupError && (pointsLoadError || playbackGate.retryable || (processingError && processingErrorRetryable)) && (
+                      <button type="button" className="ds-btn-secondary mt-4" onClick={retryStartup}>
+                        {playbackGate.retryGeneration || (processingError && !pointsLoadError) ? "Retry preparation" : "Check preparation again"}
+                      </button>
+                    )}
+                    {processingStatus?.status === "cancelled" && onResumeProcessingRaw && (
+                      <button type="button" className="ds-btn-secondary mt-4" onClick={resumeProcessing}>Resume preparation</button>
+                    )}
+                  </div>
+                )}
+                {playbackAllowed && presentationMode === "study" && !playerReady && (
                   <div className="absolute inset-0 flex items-center justify-center text-[14px] text-text-muted pointer-events-none">
                     Loading video…
                   </div>

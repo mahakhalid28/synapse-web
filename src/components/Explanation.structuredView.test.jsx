@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Explanation from "./Explanation";
+// Exercise this feature after startup; readiness is covered by the startup integration tests.
+vi.mock("../hooks/useLecturePlaybackGate", () => ({
+  useLecturePlaybackGate: () => ({ ready: true, error: null, retryable: false }),
+}));
 
 const h = vi.hoisted(() => {
   const players = [];

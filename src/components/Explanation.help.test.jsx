@@ -11,6 +11,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import Explanation from "./Explanation";
+// These media-ownership tests begin after startup readiness; startup has its own integration tests.
+vi.mock("../hooks/useLecturePlaybackGate", () => ({
+  useLecturePlaybackGate: () => ({ ready: true, error: null, retryable: false }),
+}));
 vi.mock("../lib/personalApi", async (original) => ({ ...await original(), trackLecture: vi.fn(async () => {}), personalRequest: vi.fn(async () => ({})) }));
 import { getPreparedExplanation } from "../api";
 import { HELP_BLOCKED_RECORDING } from "../lib/onboardingText";

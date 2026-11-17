@@ -1,6 +1,15 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Explanation from "./Explanation";
+import { getInterventionPoints } from "../api";
+import { createActionRegistry, VoiceActionsContext } from "../voice/voiceActions";
+import { createVoiceAudioRegistry, VoiceAudioContext } from "../voice/voiceAudio";
+import { getSavedLecture, loadSavedAudio } from "../lib/personalApi";
+vi.mock("../lib/personalApi", async (original) => ({
+  ...await original(),
+  getSavedLecture: vi.fn(async () => []),
+  loadSavedAudio: vi.fn(async (item) => item.audioUrl),
+}));
 
 const h = vi.hoisted(() => {
   const players = [];
@@ -114,19 +123,24 @@ const readyBundle = (id = "p1", audioError = null) => ({
   },
 });
 
-const settle = (ms = 1000) => act(async () => {
-  await vi.advanceTimersByTimeAsync(ms);
-});
+const settle = async (ms = 1000) => {
+  await act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  // The player is created after the readiness render, then reports onReady asynchronously.
+  await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+};
 
 function renderExplanation(props = {}) {
-  return render(
-    <Explanation
+  const actions = createActionRegistry();
+  const media = createVoiceAudioRegistry();
+  const view = render(
+    <VoiceActionsContext.Provider value={actions}><VoiceAudioContext.Provider value={media}><Explanation
       jobId="aircAruvnKk"
       videoId="aircAruvnKk"
       mode="standard"
       {...props}
-    />,
+    /></VoiceAudioContext.Provider></VoiceActionsContext.Provider>,
   );
+  return { ...view, actions, media };
 }
 
 beforeEach(() => {
@@ -137,6 +151,8 @@ beforeEach(() => {
   h.getStatus.mockReset();
   h.getPrepared.mockReset();
   h.retry.mockReset();
+  getSavedLecture.mockReset().mockResolvedValue([]);
+  loadSavedAudio.mockReset().mockImplementation(async (item) => item.audioUrl);
   h.streamEnabled = false;
   h.streamOptions = h.streamPlayer = null;
   h.streamRequests.length = 0;
@@ -150,6 +166,117 @@ afterEach(() => {
 });
 
 describe("P3 explanation preparation playback", () => {
+  it("blocks buttons, keyboard, voice play and voice restoration before preparation finishes", async () => {
+    h.getStatus.mockResolvedValue({ items: [status("pending"), status("ready", "p2")] });
+    const view = renderExplanation({ promise: new Promise(() => {}) });
+    await settle(100);
+    expect(screen.getByRole("heading", { name: "Preparing your lecture", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Play lecture" }).disabled).toBe(true);
+    expect(screen.getAllByRole("status").some((node) => /Preparing intervention points/.test(node.textContent))).toBe(true);
+    fireEvent.keyDown(window, { code: "KeyP", key: "p", altKey: true });
+    act(() => {
+      view.actions.handlers().play_lecture();
+      view.media.getPort().restore({ lecture: true });
+    });
+    await settle(100);
+    expect(h.players).toHaveLength(0);
+  });
+  it("waits for the first chronological point even when a later ready point is selected", async () => {
+    getInterventionPoints.mockResolvedValueOnce({ points: [...h.points].reverse() });
+    h.getStatus.mockResolvedValue({ items: [status("pending"), status("ready", "p2")] });
+    renderExplanation({ pointId: "p2" });
+    await settle(200);
+    expect(h.players).toHaveLength(0);
+    expect(screen.getByText("Intervention points loaded")).toBeTruthy();
+    expect(screen.getAllByRole("status").some((node) => /Preparing the first explanation/.test(node.textContent))).toBe(true);
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
+    await settle(600);
+    expect(h.getPrepared).toHaveBeenCalledWith("p1", "standard", "aircAruvnKk", expect.any(Object));
+    expect(h.players).toHaveLength(1);
+    expect(h.players[0].playVideo).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Preparing your lecture" })).toBeNull();
+    expect(screen.getAllByRole("status").some((node) => /Lecture ready. Press Play to begin/.test(node.textContent))).toBe(true);
+  });
+  it("does not create the player until the first audio has actually loaded", async () => {
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
+    let finish;
+    const audioReady = new Promise((resolve) => { finish = resolve; });
+    h.getPrepared.mockImplementation(async () => { await audioReady; return readyBundle(); });
+    renderExplanation();
+    await settle(200);
+    expect(h.players).toHaveLength(0);
+    finish();
+    await settle(200);
+    expect(h.players).toHaveLength(1);
+    expect(h.players[0].playVideo).not.toHaveBeenCalled();
+  });
+  it("keeps playback blocked on missing audio and unlocks only after an explicit successful recheck", async () => {
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
+    h.getPrepared.mockResolvedValue(readyBundle("p1", "Audio missing"));
+    renderExplanation();
+    await settle(200);
+    expect(h.players).toHaveLength(0);
+    expect(screen.getAllByText(/first explanation's audio could not be loaded/).length).toBeGreaterThan(0);
+    h.getPrepared.mockImplementation(async (id) => readyBundle(id));
+    fireEvent.click(screen.getByRole("button", { name: "Check preparation again" }));
+    await settle(200);
+    expect(h.players).toHaveLength(1);
+  });
+  it("keeps a failed first explanation blocked and retries generation only on request", async () => {
+    h.getStatus.mockResolvedValue({ items: [status("failed"), status("ready", "p2")] });
+    h.retry.mockResolvedValue(status("pending"));
+    renderExplanation();
+    await settle(200);
+    expect(h.players).toHaveLength(0);
+    expect(h.retry).not.toHaveBeenCalled();
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
+    fireEvent.click(screen.getByRole("button", { name: "Retry preparation" }));
+    await settle(200);
+    expect(h.retry).toHaveBeenCalledWith("p1", "standard", "aircAruvnKk");
+    expect(h.players).toHaveLength(1);
+  });
+  it("does not treat a bookmarked point as the complete list and allows retrying a failed list load", async () => {
+    getInterventionPoints.mockRejectedValueOnce(new Error("Points unavailable"));
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
+    renderExplanation({ bookmarkData: { pointId: "p1", title: "First diagram", timestamp: "0:10" } });
+    await settle(200);
+    expect(h.players).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Check preparation again" }));
+    await settle(200);
+    expect(h.players).toHaveLength(1);
+  });
+  it("does not unlock a saved lecture when the full intervention list is unavailable", async () => {
+    getInterventionPoints.mockRejectedValueOnce(new Error("Points unavailable"));
+    getSavedLecture.mockResolvedValue([{ id: "save-1", pointId: "p1", mode: "standard", title: "First diagram", timestamp: "0:10",
+      explanation: { paragraphs: ["Saved text"] }, audioUrl: "blob:saved" }]);
+    renderExplanation({ readOnly: true });
+    await settle(200);
+    expect(h.players).toHaveLength(0);
+    expect(screen.getAllByText(/complete intervention points could not be loaded/).length).toBeGreaterThan(0);
+    expect(h.getStatus).not.toHaveBeenCalled();
+  });
+  it("validates the first saved audio without starting inference and leaves the reopened lecture paused", async () => {
+    getSavedLecture.mockResolvedValue([{ id: "save-1", pointId: "p1", mode: "standard", title: "First diagram", timestamp: "0:10",
+      explanation: { paragraphs: ["Saved text"] }, audioUrl: "blob:saved" }]);
+    renderExplanation({ readOnly: true });
+    await settle(200);
+    expect(loadSavedAudio).toHaveBeenCalledWith(expect.objectContaining({ id: "save-1" }), expect.any(Object));
+    expect(h.players).toHaveLength(1);
+    expect(h.players[0].playVideo).not.toHaveBeenCalled();
+    expect(h.getStatus).not.toHaveBeenCalled();
+    expect(h.retry).not.toHaveBeenCalled();
+  });
+  it("keeps an unlocked player when a different moment is selected", async () => {
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("pending", "p2")] });
+    renderExplanation();
+    await settle(200);
+    const player = h.players[0];
+    fireEvent.click(screen.getByRole("button", { name: /Moment 2.*Second graph/i }));
+    await settle(100);
+    expect(h.players).toHaveLength(1);
+    expect(player.destroy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Preparing your lecture", level: 2 })).toBeNull();
+  });
   it.each(['before start', 'before PCM', 'after PCM'])('retains early text through speech failure %s, failed polling, and retry', async (stage) => {
     h.streamEnabled = true;
     h.getStatus.mockResolvedValue({ items: [status('pending'), status('pending', 'p2')] });
@@ -241,20 +368,15 @@ describe("P3 explanation preparation playback", () => {
     await act(async () => {
       await stream.onEvent({ type: 'start', text: 'Early readable explanation.' });
     });
-    const player = h.players[0];
-    player.state = 1;
-    player.time = 10.1;
-    await settle(350);
-    expect(screen.getByRole('button', { name: 'Wait here' })).toBeTruthy();
+    expect(h.players).toHaveLength(0);
     expect(screen.queryByRole('button', { name: 'Listen' })).toBeNull();
-    expect(h.streamPlayer.play).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Wait here' }));
-    await settle(100);
     expect(h.streamPlayer.play).not.toHaveBeenCalled();
 
     await act(async () => {
       await stream.onEvent({ type: 'audio', samples: new Float32Array(100) });
     });
+    await settle(100);
+    fireEvent.click(screen.getByRole('button', { name: /Listen to explanation audio/i }));
     await settle(100);
     expect(h.streamPlayer.play).toHaveBeenCalledTimes(1);
   });
@@ -371,35 +493,33 @@ describe("P3 explanation preparation playback", () => {
     renderExplanation();
     await settle(200);
 
-    expect(screen.getAllByRole("status").some((node) => /being prepared/i.test(node.textContent))).toBe(true);
+    expect(screen.getAllByRole("status").some((node) => /Preparing the first explanation/i.test(node.textContent))).toBe(true);
     expect(h.getPrepared).not.toHaveBeenCalled();
 
     await settle(600);
-    expect(h.getPrepared).toHaveBeenCalledTimes(1);
+    expect(h.getPrepared).toHaveBeenCalledTimes(2);
     expect(h.getPrepared).toHaveBeenCalledWith("p1", "standard", "aircAruvnKk", expect.any(Object));
     expect(screen.getByText("p1 prepared explanation text.")).toBeTruthy();
     expect(h.getStatus.mock.calls.every(([videoId, mode]) => videoId === "aircAruvnKk" && mode === "standard")).toBe(true);
   });
 
-  it("waits at an automatic intervention without launching duplicate inference, then asks before playing ready audio", async () => {
+  it("waits before creating the lecture player, then asks before playing ready audio", async () => {
     h.getStatus
       .mockResolvedValueOnce({ items: [status("generating"), status("pending", "p2")] })
       .mockResolvedValueOnce({ items: [status("ready"), status("pending", "p2")] });
     renderExplanation();
     await settle(200);
+    expect(h.players).toHaveLength(0);
+    expect(h.getPrepared).not.toHaveBeenCalled();
+
+    await settle(600);
     const player = h.players[0];
     player.state = 1;
     player.time = 10.1;
     await settle(350);
-
     expect(player.pauseVideo).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Skip explanation" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Resume lecture" }).length).toBeGreaterThan(0);
-    expect(h.getPrepared).not.toHaveBeenCalled();
-
-    await settle(600);
     expect(h.FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Wait here" }));
+    fireEvent.click(screen.getByRole("button", { name: "Listen" }));
     await settle(100);
     expect(h.FakeAudio.instances.at(-1).play).toHaveBeenCalledTimes(1);
   });
@@ -507,7 +627,7 @@ describe("P3 explanation preparation playback", () => {
   });
 
   it("seeking to another moment cancels automatic playback and preserves user pause ownership", async () => {
-    h.getStatus.mockResolvedValue({ items: [status("pending"), status("ready", "p2")] });
+    h.getStatus.mockResolvedValue({ items: [status("ready"), status("ready", "p2")] });
     renderExplanation();
     await settle(200);
     const player = h.players[0];

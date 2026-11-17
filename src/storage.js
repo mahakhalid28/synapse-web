@@ -7,7 +7,12 @@ let personalBookmarks = null;
 
 // In-memory summaries only. Backend collections are the durable authority.
 export function updatePersonalSummary(lectures, bookmarks) {
-  personalLibrary = lectures.map((lecture) => ({ ...lecture, ...(lecture.explanations[0] || {}) }));
+  personalLibrary = lectures.map((lecture) => ({
+    ...lecture,
+    ...(lecture.explanations[0] || {}),
+    // Saved explanations retain their original metadata; the lecture owns its title.
+    videoTitle: lecture.videoTitle || lecture.explanations[0]?.videoTitle,
+  }));
   personalBookmarks = bookmarks;
   notify();
 }

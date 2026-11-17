@@ -111,7 +111,8 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
   const lastReadOnly = useRef(false);
   const lectureOperations = useRef(Promise.resolve());
   const activeLectureVideo = ["explanation", "timeline"].includes(screen) ? jobInfo?.videoId : null;
-  const lectureConversation = useMemo(() => newLectureConversation(activeLectureVideo), [activeLectureVideo]);
+  const freshPlayback = Boolean(jobInfo?.freshPlayback);
+  const lectureConversation = useMemo(() => newLectureConversation(activeLectureVideo, { freshPlayback }), [activeLectureVideo, freshPlayback]);
   useEffect(() => {
     const expired = (event) => {
       if (lastLectureView.current !== event.detail.videoId) return;
@@ -233,7 +234,7 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
   }, []);
 
   const startProcessing = (
-    { url, videoId, mode, metadata = null },
+    { url, videoId, mode, metadata = null, freshPlayback = false },
     { processingJobId = null, retry = false, reconnect = false, resume = false } = {},
   ) => {
     const sessionKey = processingSessionKey();
@@ -327,6 +328,7 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
               : "Creating or joining the shared processing job.",
           },
       lectureMetadata: metadata,
+      freshPlayback,
     });
     setHasLeftHome(true);
     setScreen("explanation");
@@ -334,7 +336,7 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
   const handleProcess = (request) => {
     openingToken.current++;
     if (request.resume) return handleOpenLibraryExplanation({ ...request.metadata, videoId: request.videoId, jobId: request.videoId, mode: request.mode, autoPlay: false });
-    return startProcessing(request);
+    return startProcessing({ ...request, freshPlayback: true });
   };
 
   const handleRetryProcessing = () => {
@@ -345,6 +347,7 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
         videoId: jobInfo.videoId,
         mode: jobInfo.mode,
         metadata: jobInfo.lectureMetadata,
+        freshPlayback: jobInfo.freshPlayback,
       },
       {
         processingJobId: jobInfo.processingJobId,
@@ -408,6 +411,7 @@ function StudyApp({ theme, setTheme, accountControls, notice }) {
         videoId: jobInfo.videoId,
         mode: jobInfo.mode,
         metadata: jobInfo.lectureMetadata,
+        freshPlayback: jobInfo.freshPlayback,
       },
       { processingJobId: jobInfo.processingJobId, resume: true },
     );

@@ -13,8 +13,8 @@ vi.mock("../lib/apiConfig", () => ({ API_MOCK_MODE: false }));
 vi.mock("../api", () => ({ getExplanationPreparationStatus: (...args) => h.getStatus(...args), requestExplanationPreparation: (...args) => h.request(...args), retryExplanationPreparation: (...args) => h.retry(...args) }));
 const points = [{ id: "p1", title: "Equation", timestamp: "2:15" }, { id: "p2", title: "Graph", timestamp: "5:00" }];
 const tick = (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
-function setup(managed = false) {
-  const session = newLectureConversation();
+function setup(managed = false, { freshPlayback = false } = {}) {
+  const session = newLectureConversation(null, { freshPlayback });
   session.statuses.set("p1::standard", { status: "ready" });
   session.statuses.set("p2::standard", { status: "ready" });
   let position = 135;
@@ -224,6 +224,47 @@ describe("owned request completion", () => {
     expect(e.session.heard.has("p1::standard")).toBe(true);
     expect(e.media.play).not.toHaveBeenCalled();
     expect(e.result.current.question).toBeNull();
+  });
+  it("replays saved heard explanations in a fresh run and still saves listening progress", async () => {
+    const e = setup(true, { freshPlayback: true });
+    e.requests([{ ...ready, heard: true, dismissed: true }]);
+    await tick(5000);
+    expect(e.session.triggered.has("p1")).toBe(false);
+    expect(e.session.heard.size).toBe(0);
+    expect(e.session.deferred.size).toBe(0);
+    expect(e.result.current.question).toBeNull();
+    expect(h.progress).not.toHaveBeenCalled();
+    act(() => e.result.current.encounter(points[0]));
+    act(() => e.result.current.answer("listen"));
+    await tick();
+    expect(e.media.play).toHaveBeenCalledTimes(1);
+    expect(h.ownedRequest).not.toHaveBeenCalled();
+    act(() => e.result.current.ended("p1", "standard"));
+    expect(h.progress).toHaveBeenCalledWith("owned-1", { heard: true });
+    act(() => e.result.current.answer("yes"));
+    await tick(5000);
+    expect(e.session.heard.has("p1::standard")).toBe(true);
+    expect(e.result.current.question).toBeNull();
+    expect(e.media.play).toHaveBeenCalledTimes(1);
+  });
+  it("does not offer historical unheard requests before their timestamp in a fresh run", async () => {
+    const e = setup(true, { freshPlayback: true });
+    e.requests([ready]);
+    await tick(10000);
+    expect(e.session.pending.size).toBe(0);
+    expect(e.result.current.question).toBeNull();
+    act(() => e.result.current.encounter(points[0]));
+    expect(e.result.current.question.choices).toEqual(["listen", "skip"]);
+  });
+  it("keeps new pending requests active in a fresh run despite saved heard history", async () => {
+    const e = setup(true, { freshPlayback: true });
+    act(() => e.result.current.requestCurrent());
+    await tick();
+    act(() => e.result.current.answer("wait"));
+    e.requests([{ ...ready, heard: true }]);
+    await tick(5000);
+    expect(e.media.play).toHaveBeenCalledTimes(1);
+    expect(e.session.heard.size).toBe(0);
   });
 });
 

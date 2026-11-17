@@ -105,6 +105,47 @@ afterEach(() => {
 });
 
 describe("the Talk button", () => {
+  it("prompts for a lecture question and opens the next voice turn before restoring lecture audio", async () => {
+    localStorage.setItem("synapse_voice_feedback", "tts");
+    const port = makePort({ lecture: "playing", videoId: "aircAruvnKk", lectureSeconds: 42 });
+    const registry = createVoiceAudioRegistry();
+    registry.register(port);
+    const actions = createActionRegistry();
+    actions.register({ handlers: () => ({}), context: () => ({ screen: "explanation", videoId: "aircAruvnKk" }) });
+    const { deps, capture } = makeDeps();
+    const commandDeps = {
+      transcribeAudio: vi.fn()
+        .mockResolvedValueOnce({ text: "I want to ask a question", language: "en" })
+        .mockResolvedValueOnce({ text: "Why is the current opposite?", language: "en" }),
+      interpretText: vi.fn(),
+      askQuestion: vi.fn(async () => ({ answer_text: "The current follows the conventional direction." })),
+    };
+    const speakText = vi.fn(async () => "blob:voice");
+    const createAudio = () => {
+      const audio = { pause: vi.fn(), play: async () => { setTimeout(() => audio.onended(), 10); } };
+      return audio;
+    };
+    render(<VoiceActionsContext.Provider value={actions}><VoiceAudioContext.Provider value={registry}>
+      <VoiceControl deps={deps} commandDeps={commandDeps} warmUp={() => {}}
+        speakerDeps={{ speakText, createAudio }} />
+    </VoiceAudioContext.Provider></VoiceActionsContext.Provider>);
+    await press();
+    await press();
+    await settle(1000);
+    expect(speakText).toHaveBeenCalledWith("Ask a question.");
+    expect(capture.open).toHaveBeenCalledTimes(2);
+    expect(port.restore).not.toHaveBeenCalled();
+    expect(commandDeps.askQuestion).not.toHaveBeenCalled();
+    await press();
+    await settle(200);
+    expect(commandDeps.askQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      videoId: "aircAruvnKk", question: "Why is the current opposite?", currentTimeSeconds: 42,
+    }));
+    expect(commandDeps.interpretText).not.toHaveBeenCalled();
+    expect(speakText).toHaveBeenCalledWith("The current follows the conventional direction.");
+    expect(port.restore).toHaveBeenCalledWith(expect.objectContaining({ lecture: true }));
+  });
+
   it("is a named button that advertises its shortcut and how to use it", () => {
     mount();
     const button = talkButton();

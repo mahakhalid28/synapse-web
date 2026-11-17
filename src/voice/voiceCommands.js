@@ -16,14 +16,14 @@ import { LIST_PAGE_SIZE, MESSAGES, actionPhrase, helpText, listPage, missingMess
 import { progressSentence } from "./preparationProgress.js";
 
 // Handled here, not by any screen.
-export const VOICE_LAYER = ["stop_speaking", "repeat_last_response", "cancel", "help", "app_question", "where_am_i", "confirm_yes", "confirm_no", "read_list", "read_more", "preparation_status"];
+export const VOICE_LAYER = ["stop_speaking", "repeat_last_response", "cancel", "help", "app_question", "ask_question", "where_am_i", "confirm_yes", "confirm_no", "read_list", "read_more", "preparation_status"];
 
 // Screens whose registered items can be read aloud a page at a time (read_list / read_more).
 const LIST_SCREENS = new Set(["home", "subject", "library", "bookmarks", "notes"]);
 
 // Commands that change what is playing: after them the paused audio must stay as the command left it.
 export const PLAYBACK_COMMANDS = new Set([
-  "request_explanation",
+  "request_explanation", "skip_explanation",
   "play_lecture", "pause_lecture", "seek_lecture", "play_explanation", "pause_explanation",
   "replay_explanation", "next_moment", "previous_moment", "go_to_moment", "toggle_voice_note",
   "play_item_audio", "play_note", "stop_note_audio", "open_note_explanation",
@@ -71,6 +71,7 @@ export function createCommandHandler({ registry, speaker, deps = {}, announcesSc
     try { Promise.resolve(cue(kind)).catch(() => {}); } catch { /* a cue is only a hint */ }
   };
   let pending = null; // { action, args } waiting for yes / no
+  let awaitingQuestion = null; // Lecture context retained between the invitation and the spoken question.
   let lastAction = null;
   let listReading = null; // { key, next } where "read more" continues; key identifies the list read
 
@@ -224,27 +225,60 @@ export function createCommandHandler({ registry, speaker, deps = {}, announcesSc
   const handleUtterance = async (utterance) => {
     const { signal } = utterance;
     if (signal?.aborted) return {};
+    const current = registry.context();
+    if (awaitingQuestion && (awaitingQuestion.video_id !== current.videoId || awaitingQuestion.screen !== current.screen)) {
+      awaitingQuestion = null;
+    }
     if (utterance.before?.videoId && utterance.before.videoId !== registry.context().videoId) return {};
     let heard;
     try {
       heard = await api.transcribeAudio(utterance.wav, { signal });
     } catch {
+      awaitingQuestion = null;
       sound("error", signal);
       await say(MESSAGES.offline, signal);
       return {};
     }
     if (signal?.aborted) return {};
+    const contextNow = registry.context();
+    if (awaitingQuestion && (awaitingQuestion.video_id !== contextNow.videoId || awaitingQuestion.screen !== contextNow.screen)) {
+      awaitingQuestion = null;
+    }
+    if (utterance.before?.videoId && utterance.before.videoId !== contextNow.videoId) return {};
     if (utterance.before?.questionId !== undefined &&
         utterance.before.questionId !== (registry.context().explanationQuestion?.id ?? null)) return {};
     if (heard.language && !heard.language.toLowerCase().startsWith("en") && (heard.language_probability ?? 1) >= 0.8) {
-      await say("Please answer in English. " + (registry.context().questionPrompt || ""), signal);
+      await say("Please answer in English. " + (awaitingQuestion ? "Ask a question." : registry.context().questionPrompt || ""), signal);
       return { followUp: true };
     }
     if (heard.no_speech || !heard.text?.trim()) {
+      awaitingQuestion = null;
       if (utterance.auto) return {}; // Synapse listened by itself and nobody answered: say nothing
       sound("error", signal);
       await say(MESSAGES.heardNothing, signal);
       return {};
+    }
+
+    const spoken = heard.text.trim().replace(/\s+/g, " ");
+    if (/^(?:i want to )?ask (?:a )?question[.!?]*$/i.test(spoken)) {
+      const context = buildContext(utterance.before);
+      if (!context.video_id) {
+        await say(MESSAGES.noLecture, signal);
+        return {};
+      }
+      pending = null;
+      awaitingQuestion = context;
+      await say("Ask a question.", signal);
+      return { followUp: true };
+    }
+    if (awaitingQuestion) {
+      const context = awaitingQuestion;
+      awaitingQuestion = null;
+      if (/^(?:cancel|never mind|nevermind|stop)[.!?]*$/i.test(spoken)) {
+        await say(MESSAGES.cancelled, signal);
+        return {};
+      }
+      return ask(heard.text, context, signal);
     }
 
     let ctx;
@@ -300,6 +334,6 @@ export function createCommandHandler({ registry, speaker, deps = {}, announcesSc
           parsed.messageKey?.startsWith("missing_") ? { followUp: true } : {};
     }
   };
-  handleUtterance.cancel = () => { pending = null; };
+  handleUtterance.cancel = () => { pending = null; awaitingQuestion = null; };
   return handleUtterance;
 }

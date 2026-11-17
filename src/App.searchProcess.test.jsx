@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App.jsx";
+import { listLectureRequests } from "./lib/lectureRequests";
 
 vi.mock("./lib/lectureRequests", () => ({
   LECTURE_SESSION_EXPIRED: "synapse-lecture-session-expired",
@@ -47,6 +48,7 @@ const h = vi.hoisted(() => {
   }));
   class FakePlayer {
     constructor(_element, options) {
+      FakePlayer.latest = this;
       this.pauseVideo = vi.fn();
       this.playVideo = vi.fn();
       this.seekTo = vi.fn();
@@ -91,7 +93,7 @@ vi.mock("./api.js", () => ({
   getExplanationPreparationStatus: h.getExplanationPreparationStatus,
   getPreparedExplanation: vi.fn(async (pointId) => ({
     explanation: { pointId, subtitle: "Saved explanation", paragraphs: ["Explanation text."], keyInsight: "Key insight." },
-    audio: { audio_file_path: null, audio_error: null },
+    audio: { audio_file_path: "blob:prepared", audio_error: null },
   })),
   retryExplanationPreparation: vi.fn(),
 }));
@@ -130,15 +132,16 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
       items: [{ intervention_id: "pt-1", timestamp: 75, status: "ready", error_code: null, attempt_count: 1 }],
     });
     h.getInterventionPoints.mockClear();
+    listLectureRequests.mockReset().mockResolvedValue([]);
     vi.stubGlobal(
       "Audio",
-      vi.fn().mockImplementation(() => ({
+      vi.fn().mockImplementation(function () { return {
         play: vi.fn().mockResolvedValue(undefined),
         pause: vi.fn(),
         load: vi.fn(),
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
-      })),
+      }; }),
     );
   });
 
@@ -185,6 +188,24 @@ describe("Real YouTube Lecture Search and One-Click Processing Flow", () => {
       expect(h.getInterventionPoints).toHaveBeenCalled();
     });
     expect(screen.getByText(/by 3Blue1Brown/)).toBeTruthy();
+  });
+
+  it("Start learning offers a previously heard explanation again at its lecture timestamp", async () => {
+    h.processVideo.mockResolvedValueOnce({ jobId: "vid_short_1" });
+    listLectureRequests.mockResolvedValue([{
+      id: "old-request", output_mode: "explanatory", status: "ready", heard: true,
+      point: { id: "pt-1", category: "graph", timestamp: "1:15", title: "Slope visualization" },
+    }]);
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Lecture link or search"), { target: { value: "calculus" } });
+    fireEvent.click(screen.getByRole("button", { name: /Search lectures/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Intro to Calculus Part 1/i }));
+    await waitFor(() => expect(listLectureRequests).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText(/by 3Blue1Brown/)).toBeTruthy());
+    await waitFor(() => expect(h.FakePlayer.latest).toBeDefined());
+    h.FakePlayer.latest.getCurrentTime.mockReturnValue(75);
+    h.FakePlayer.latest.getPlayerState.mockReturnValue(1);
+    expect(await screen.findByText(/Would you like to listen\? Say listen or skip/)).toBeTruthy();
   });
 
   it("displays actionable error UI on processing failure and allows Back to Home", async () => {

@@ -11,6 +11,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import Explanation from "../components/Explanation";
+// Exercise this feature after startup; readiness is covered by the startup integration tests.
+vi.mock("../hooks/useLecturePlaybackGate", () => ({
+  useLecturePlaybackGate: () => ({ ready: true, error: null, retryable: false }),
+}));
 import Home from "../components/Home";
 import {
   HOME_SHORTCUT_ROWS,

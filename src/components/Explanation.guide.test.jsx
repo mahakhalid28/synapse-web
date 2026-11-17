@@ -104,7 +104,10 @@ afterEach(() => {
   localStorage.clear();
 });
 
-const settle = (ms = 1000) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+const settle = async (ms = 1000) => {
+  await act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+};
 
 async function open(props = {}) {
   const utils = render(
@@ -279,7 +282,7 @@ describe("the existing spoken introduction is untouched", () => {
     await open();
     expect(localStorage.getItem(INTRO_KEY)).toBe("1");
     expect(liveText()).toContain(
-      "Press Play lecture to begin. It pauses at each visual; then read the explanation below or use the Listen button. Press Alt plus K for keyboard shortcuts.",
+      "Lecture ready. Press Play to begin. It pauses at each visual; then read the explanation below or use the Listen button. Press Alt plus K for keyboard shortcuts.",
     );
     expect(card()).toBeTruthy(); // the card and the spoken sentence both exist
   });

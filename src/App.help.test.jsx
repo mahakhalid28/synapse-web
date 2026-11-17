@@ -8,6 +8,10 @@ import { useEffect } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App.jsx";
+// Exercise this feature after startup; readiness is covered by the startup integration tests.
+vi.mock("./hooks/useLecturePlaybackGate", () => ({
+  useLecturePlaybackGate: () => ({ ready: true, error: null, retryable: false }),
+}));
 import { HELP_BLOCKED_RECORDING } from "./lib/onboardingText";
 import "./test/domMatchers.js";
 
