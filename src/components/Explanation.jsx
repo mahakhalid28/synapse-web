@@ -1329,21 +1329,30 @@ export default function Explanation({
     changeRate(next);
   };
 
-  // Alt+Left/Right: jump the lecture 10 seconds. Moments jumped over are not lost: going forward, the
-  // earliest skipped moment is brought up now (the lecture moves to it and offers its explanation; later
-  // skipped ones fire as playback reaches them). Going back, moments in the replayed stretch can fire again.
+  // Alt+Left/Right (and voice "forward 10 seconds"): jump the lecture. Going forward always lands where the
+  // learner asked; a moment jumped over is named in the announcement. Going back, moments can fire again.
+  // Announce a result for screen readers and keyboard users, and hand it back to a voice command, which
+  // speaks it itself (a live-region message can be lost when the lecture resumes right after the turn).
+  const report = (message, ok = true) => {
+    announce(message);
+    return { ok, message };
+  };
+  // Voice: success is spoken as the command's reply; failure becomes the command's spoken error.
+  const spokenResult = ({ ok, message }) => {
+    if (!ok) throw Object.assign(new Error(message), { spoken: message });
+    return { spoken: message };
+  };
+
   const seekLectureBy = (delta) => seekLectureTo(null, delta);
 
   // `target` is an absolute time in seconds (voice: "go to 5:30"); with null, `delta` is relative to now.
   const seekLectureTo = (target, delta = null) => {
     const player = playerRef.current;
     if (!player?.seekTo || !playbackAllowedRef.current) {
-      announce("The lecture isn't ready to move yet.");
-      return;
+      return report("The lecture isn't ready to move yet.", false);
     }
     if (conversationRef.current?.isBlocked?.()) {
-      announce("Answer the question or resume the lecture first.");
-      return;
+      return report("Answer the question or resume the lecture first.", false);
     }
     const from = player.getCurrentTime?.() ?? 0;
     const duration = player.getDuration?.() || Infinity;
@@ -1351,35 +1360,38 @@ export default function Explanation({
     delta = to - from;
     const timed = allPoints.filter((p) => p.origin !== "manual")
       .map((p) => ({ p, at: parseTimestampToSeconds(p.timestamp) }));
+    let passed = "";
     if (delta > 0) {
-      const skipped = timed.filter(({ p, at }) => !triggeredPointIdsRef.current.has(p.id) && at > from + 0.5 && at <= to + 0.5)
+      // The learner asked to move, so always move. A moment jumped over is named, not forced on them:
+      // it stays reachable with "go to moment N" (or the timeline).
+      const skipped = timed.filter(({ p, at }) => !triggeredPointIdsRef.current.has(p.id) && at > from + 0.5 && at < to - 0.5)
         .sort((a, b) => a.at - b.at);
+      for (const { p } of skipped) triggeredPointIdsRef.current.add(p.id);
       if (skipped.length) {
-        const first = skipped[0];
-        triggeredPointIdsRef.current.add(first.p.id);
-        player.seekTo(first.at, true);
-        announce(`Skipped ahead to ${formatTimestamp(first.at)}, a moment with an explanation.`);
-        conversationRef.current?.encounter(first.p);
-        return;
+        const number = sortedPoints.findIndex((p) => p.id === skipped[0].p.id) + 1;
+        const hear = number ? ` To hear it, say go to moment ${number}.` : "";
+        passed = skipped.length === 1
+          ? ` You passed the moment at ${formatTimestamp(skipped[0].at)}.${hear}`
+          : ` You passed ${skipped.length} moments, the first at ${formatTimestamp(skipped[0].at)}.${hear}`;
       }
     } else {
+      // Going back replays that stretch, so its moments can be offered again.
       for (const { p, at } of timed) if (at >= to - 0.5 && at <= from + 0.5) triggeredPointIdsRef.current.delete(p.id);
     }
     player.seekTo(to, true);
-    announce(target != null ? `Moved to ${formatTimestamp(to)}.` : `${delta > 0 ? "Forward" : "Back"} ${Math.round(Math.abs(delta))} seconds, at ${formatTimestamp(to)}.`);
+    return report((target != null ? `Moved to ${formatTimestamp(to)}.` : `${delta > 0 ? "Forward" : "Back"} ${Math.round(Math.abs(delta))} seconds, at ${formatTimestamp(to)}.`) + passed);
   };
 
   // Alt+Up/Down: the lecture's own volume (the YouTube player's 0-100), not the explanation voice.
   const stepLectureVolume = (delta) => {
     const player = playerRef.current;
     if (!player?.setVolume) {
-      announce("The lecture volume isn't ready yet.");
-      return;
+      return report("The lecture volume isn't ready yet.", false);
     }
     if (player.isMuted?.()) player.unMute?.();
     const next = Math.min(100, Math.max(0, Math.round((player.getVolume?.() ?? 100) + delta)));
     player.setVolume(next);
-    announce(next === 100 ? "Lecture volume 100 percent, the maximum." : next === 0 ? "Lecture volume 0, silent." : `Lecture volume ${next} percent.`);
+    return report(next === 100 ? "Lecture volume 100 percent, the maximum." : next === 0 ? "Lecture volume 0, silent." : `Lecture volume ${next} percent.`);
   };
 
   const handleBookmark = async () => {
@@ -1845,9 +1857,9 @@ export default function Explanation({
       ...(readOnly ? { retry_saved_load: () => { setStorageError(null); setSavedLoadVersion((value) => value + 1); } } : {}),
       play_lecture: () => handleResumeVideo(),
       pause_lecture: () => pauseLectureAudio(),
-      seek_lecture: ({ direction, seconds }) => seekLectureBy(direction === "forward" ? seconds : -seconds),
-      seek_to_time: ({ seconds }) => seekLectureTo(seconds),
-      change_lecture_volume: ({ direction }) => stepLectureVolume(direction === "louder" ? VOLUME_STEP : -VOLUME_STEP),
+      seek_lecture: ({ direction, seconds }) => spokenResult(seekLectureBy(direction === "forward" ? seconds : -seconds)),
+      seek_to_time: ({ seconds }) => spokenResult(seekLectureTo(seconds)),
+      change_lecture_volume: ({ direction }) => spokenResult(stepLectureVolume(direction === "louder" ? VOLUME_STEP : -VOLUME_STEP)),
       play_explanation: () => {
         const current = conversationRef.current;
         if (current.question) { current.answer(current.question.choices.includes("listen") ? "listen" : "replay"); return; }

@@ -22,9 +22,10 @@ export const VOICE_LAYER = ["stop_speaking", "repeat_last_response", "cancel", "
 const LIST_SCREENS = new Set(["home", "subject", "library", "bookmarks", "notes"]);
 
 // Commands that change what is playing: after them the paused audio must stay as the command left it.
+// Seeking is not one: a lecture that was playing keeps playing from the new position.
 export const PLAYBACK_COMMANDS = new Set([
   "request_explanation", "skip_explanation",
-  "play_lecture", "pause_lecture", "seek_lecture", "seek_to_time", "play_explanation", "pause_explanation",
+  "play_lecture", "pause_lecture", "play_explanation", "pause_explanation",
   "replay_explanation", "next_moment", "previous_moment", "go_to_moment", "toggle_voice_note",
   "play_item_audio", "play_note", "stop_note_audio", "open_note_explanation",
   "open_item", "read_saved_item",
@@ -195,8 +196,9 @@ export function createCommandHandler({ registry, speaker, deps = {}, announcesSc
     }
     // Act first, then say so: speech takes seconds and the learner should see the result at once.
     const startedAt = Date.now();
+    let result;
     try {
-      await handler(action === "request_explanation" ? { ...args, requestContext: {
+      result = await handler(action === "request_explanation" ? { ...args, requestContext: {
         lectureSeconds: ctx.lecture_seconds, currentMomentRef: ctx.current_moment_ref,
         playing: ctx.playing, useSelected: Boolean(args.depth || ctx.explanation_question),
       } } : args);
@@ -207,7 +209,10 @@ export function createCommandHandler({ registry, speaker, deps = {}, announcesSc
     }
     sound("done", signal);
     const introducedByNewScreen = announcesScreens && SCREEN_TARGETS[action] && SCREEN_TARGETS[action] !== ctx.screen;
-    if (!PLAYBACK_COMMANDS.has(action) && !introducedByNewScreen) {
+    if (typeof result?.spoken === "string" && result.spoken) {
+      // The handler said exactly what happened ("Forward 10 seconds, at 2:35."): speak that, not "Okay, ...".
+      await say(result.spoken, signal);
+    } else if (!PLAYBACK_COMMANDS.has(action) && !introducedByNewScreen) {
       let screenReplied = false;
       if (screenRepliedSince) {
         await new Promise((done) => setTimeout(done, SCREEN_REPLY_WAIT_MS));

@@ -730,3 +730,26 @@ describe("voice API client", () => {
     delete URL.createObjectURL;
   });
 });
+
+describe("seeking the lecture by voice", () => {
+  it("speaks what the seek did, and lets a playing lecture carry on", async () => {
+    const seek = vi.fn(() => ({ spoken: "Forward 10 seconds, at 2:35." }));
+    const env = setup({
+      handlers: { seek_lecture: seek },
+      heard: { text: "forward 10 seconds", language: "en" },
+      responses: [execute("seek_lecture", { direction: "forward", seconds: 10 })],
+      screenRepliedSince: () => true, // the screen's live region also announced it; the reply must still be spoken
+    });
+    const outcome = await env.handle(utterance);
+    expect(seek).toHaveBeenCalledWith({ direction: "forward", seconds: 10 });
+    expect(env.said.at(-1)).toBe("Forward 10 seconds, at 2:35.");
+    expect(outcome).toEqual({});
+  });
+
+  it("speaks why a seek could not happen", async () => {
+    const seek = vi.fn(() => { throw Object.assign(new Error("x"), { spoken: "Answer the question or resume the lecture first." }); });
+    const env = setup({ handlers: { seek_lecture: seek }, responses: [execute("seek_lecture", { direction: "forward", seconds: 10 })] });
+    await env.handle(utterance);
+    expect(env.said.at(-1)).toBe("Answer the question or resume the lecture first.");
+  });
+});
