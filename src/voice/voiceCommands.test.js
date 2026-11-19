@@ -192,13 +192,13 @@ describe("commands that open another screen", () => {
     expect(await env.handle(utterance)).toEqual({ followUp: true });
     expect(env.said.at(-1)).toBe("Do you want to remove item 1? Say yes or no after the tone.");
   });
-  it("tell the learner to press Space when auto-listen is turned off", async () => {
+  it("tell the learner to press Alt+T when auto-listen is turned off", async () => {
     localStorage.setItem("synapse_voice_autolisten", "off");
     try {
       const env = setup({ handlers: { remove_item: vi.fn() }, describe: () => ({ screen: "bookmarks" }),
         responses: [reply("confirm", { action: "remove_item", args: { index: 1 } })] });
       await env.handle(utterance);
-      expect(env.said.at(-1)).toBe("Do you want to remove item 1? Press Space and say yes or no.");
+      expect(env.said.at(-1)).toBe("Do you want to remove item 1? Press Alt plus T and say yes or no.");
     } finally {
       localStorage.removeItem("synapse_voice_autolisten");
     }

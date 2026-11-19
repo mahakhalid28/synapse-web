@@ -230,6 +230,42 @@ export const ACTIONS = {
     "binding": "playerRef.seekTo(currentTime +/- seconds)",
     "bindingStatus": "wrapper"
   },
+  "seek_to_time": {
+    "category": "lecture",
+    "screens": [
+      "explanation"
+    ],
+    "params": {
+      "seconds": {
+        "type": "int",
+        "required": true,
+        "min": 0,
+        "max": 86400
+      }
+    },
+    "risk": "low",
+    "binding": "Explanation.seekLectureTo(seconds)",
+    "bindingStatus": "wrapper"
+  },
+  "change_lecture_volume": {
+    "category": "lecture",
+    "screens": [
+      "explanation"
+    ],
+    "params": {
+      "direction": {
+        "type": "enum",
+        "required": true,
+        "values": [
+          "louder",
+          "quieter"
+        ]
+      }
+    },
+    "risk": "low",
+    "binding": "Explanation.stepLectureVolume(+10 or -10)",
+    "bindingStatus": "wrapper"
+  },
   "play_explanation": {
     "category": "lecture",
     "screens": [

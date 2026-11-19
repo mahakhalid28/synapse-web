@@ -100,7 +100,7 @@ export class VoiceTurnController {
     return undefined;
   }
 
-  /** Hold-to-talk start (Space on the focused button). */
+  /** Hold-to-talk start. */
   holdStart() {
     if (this.status === TURN.IDLE) {
       this.autoTurns = 0;

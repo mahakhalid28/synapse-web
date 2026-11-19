@@ -19,15 +19,10 @@ const canAutoListen = () => autoListenEnabled() && feedbackMode() !== "screenrea
 
 // The talk control for voice commands, in the top bar so it is on every screen.
 //
-//   Space         anywhere except while typing in a text field: tap to start listening, tap again to stop;
-//                 or hold it down while speaking and release to stop
-//   Alt+T         the same toggle, and it also works while typing in a field (like Alt+S)
+//   Alt+T         tap to start listening, tap again to stop; it also works while typing in a field (like Alt+S)
 //   click / Enter on the button: toggle
 //
-// Space is the learner's main key, so outside text fields it belongs to voice: buttons and links are
-// pressed with Enter instead (radio choices still move with the arrow keys). Keys with Ctrl, Alt, Shift
-// or Meta never trigger Space; Alt+T ignores Ctrl, Shift and Meta so AltGr layouts (Ctrl+Alt) do not
-// trigger it. Both are off while Help is open.
+// Alt+T ignores Ctrl, Shift and Meta so AltGr layouts (Ctrl+Alt) do not trigger it. It is off while Help is open.
 //
 // When `screen` changes, the screen is introduced aloud (see useScreenIntro.js). Starting a turn stops it.
 // What screens announce in their live regions is also spoken (see useLiveNarrator.js), and when a command's
@@ -44,15 +39,12 @@ const LABELS = {
   [TURN.PROCESSING]: "Working…",
 };
 
-const HINT = "Press Space to start talking and again to stop, or hold Space while you speak. Alt+T also works, even while typing.";
-
-// Held at least this long, releasing Space ends the turn (push-to-talk); a shorter tap leaves it listening.
-export const SPACE_HOLD_MS = 500;
+const HINT = "Press Alt+T to start talking and again to stop. It works even while typing.";
 
 const NON_TEXT_INPUTS = new Set(["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image"]);
 const TEXT_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton"]);
 
-/** True when Space should type into `el` rather than start voice control. */
+/** True when `el` is a text field (kept for callers that must not steal typing). */
 export function isTypingTarget(el) {
   if (!el || el === window || el === document) return false;
   if (el.isContentEditable) return true;
@@ -61,8 +53,6 @@ export function isTypingTarget(el) {
   if (tag === "INPUT") return !NON_TEXT_INPUTS.has((el.getAttribute("type") || "text").toLowerCase());
   return TEXT_ROLES.has(el.getAttribute?.("role"));
 }
-
-const isSpace = (e) => e.key === " " || e.key === "Spacebar" || e.code === "Space";
 
 // How often the "explanation ready" chime checks the lecture's current question.
 export const READY_CUE_POLL_MS = 300;
@@ -189,22 +179,9 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
 
   useEffect(() => () => speaker.stop(), [speaker]);
 
-  // The Space press in progress: when it began and whether it started the turn (for hold-to-talk).
-  const spacePress = useRef(null);
-
   useEffect(() => {
     const onKeyDown = (e) => {
       if (disabled) return;
-      if (isSpace(e)) {
-        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || isTypingTarget(e.target)) return;
-        // Claim the key so a focused button is not pressed and the page does not scroll.
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.repeat || spacePress.current) return;
-        spacePress.current = { at: Date.now(), started: statusRef.current === TURN.IDLE };
-        toggle();
-        return;
-      }
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       // e.code is empty for some assistive-technology key events, so fall back to the typed letter.
       const pressed = e.code || (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : "");
@@ -212,26 +189,14 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
       e.preventDefault();
       if (!e.repeat) toggle();
     };
-    const onKeyUp = (e) => {
-      if (!isSpace(e)) return;
-      const press = spacePress.current;
-      spacePress.current = null;
-      if (!press) return; // this Space press was typing, or Help was open
-      // Browsers press a focused button when Space is released; that must not happen either.
-      e.preventDefault();
-      e.stopPropagation();
-      if (press.started && Date.now() - press.at >= SPACE_HOLD_MS && statusRef.current === TURN.LISTENING) toggle();
-    };
     // Capture phase: a screen that stops a key's propagation cannot swallow the shortcut.
     window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
     };
   });
 
-  // Keys pressed while the YouTube player has focus go to the player's frame, never to this page, so Space
+  // Keys pressed while the YouTube player has focus go to the player's frame, never to this page, so a key
   // would silently do nothing after the learner clicks the video. When focus moves into a frame, take it back.
   useEffect(() => {
     const takeFocusBack = () => {
@@ -254,7 +219,7 @@ export default function VoiceControl({ onUtterance, deps, commandDeps, speakerDe
         type="button"
         disabled={disabled}
         onClick={() => { if (!disabled) toggle(); }}
-        aria-keyshortcuts="Space Alt+T"
+        aria-keyshortcuts="Alt+T"
         aria-describedby="voice-control-hint"
         className={
           (busy ? "ds-btn-accent-outline" : "ds-btn-secondary") + " mr-2"

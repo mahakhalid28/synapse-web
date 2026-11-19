@@ -131,6 +131,9 @@ const RATES = [0.75, 1, 1.25, 1.5, 2];
  *   - jobId, videoId, pointId, mode
  *   - onNavigate(key)
  */
+const SEEK_STEP_SECONDS = 10;
+const VOLUME_STEP = 10;
+
 export default function Explanation({
   jobId,
   videoId,
@@ -1326,6 +1329,59 @@ export default function Explanation({
     changeRate(next);
   };
 
+  // Alt+Left/Right: jump the lecture 10 seconds. Moments jumped over are not lost: going forward, the
+  // earliest skipped moment is brought up now (the lecture moves to it and offers its explanation; later
+  // skipped ones fire as playback reaches them). Going back, moments in the replayed stretch can fire again.
+  const seekLectureBy = (delta) => seekLectureTo(null, delta);
+
+  // `target` is an absolute time in seconds (voice: "go to 5:30"); with null, `delta` is relative to now.
+  const seekLectureTo = (target, delta = null) => {
+    const player = playerRef.current;
+    if (!player?.seekTo || !playbackAllowedRef.current) {
+      announce("The lecture isn't ready to move yet.");
+      return;
+    }
+    if (conversationRef.current?.isBlocked?.()) {
+      announce("Answer the question or resume the lecture first.");
+      return;
+    }
+    const from = player.getCurrentTime?.() ?? 0;
+    const duration = player.getDuration?.() || Infinity;
+    const to = Math.min(Math.max(0, target ?? from + delta), duration);
+    delta = to - from;
+    const timed = allPoints.filter((p) => p.origin !== "manual")
+      .map((p) => ({ p, at: parseTimestampToSeconds(p.timestamp) }));
+    if (delta > 0) {
+      const skipped = timed.filter(({ p, at }) => !triggeredPointIdsRef.current.has(p.id) && at > from + 0.5 && at <= to + 0.5)
+        .sort((a, b) => a.at - b.at);
+      if (skipped.length) {
+        const first = skipped[0];
+        triggeredPointIdsRef.current.add(first.p.id);
+        player.seekTo(first.at, true);
+        announce(`Skipped ahead to ${formatTimestamp(first.at)}, a moment with an explanation.`);
+        conversationRef.current?.encounter(first.p);
+        return;
+      }
+    } else {
+      for (const { p, at } of timed) if (at >= to - 0.5 && at <= from + 0.5) triggeredPointIdsRef.current.delete(p.id);
+    }
+    player.seekTo(to, true);
+    announce(target != null ? `Moved to ${formatTimestamp(to)}.` : `${delta > 0 ? "Forward" : "Back"} ${Math.round(Math.abs(delta))} seconds, at ${formatTimestamp(to)}.`);
+  };
+
+  // Alt+Up/Down: the lecture's own volume (the YouTube player's 0-100), not the explanation voice.
+  const stepLectureVolume = (delta) => {
+    const player = playerRef.current;
+    if (!player?.setVolume) {
+      announce("The lecture volume isn't ready yet.");
+      return;
+    }
+    if (player.isMuted?.()) player.unMute?.();
+    const next = Math.min(100, Math.max(0, Math.round((player.getVolume?.() ?? 100) + delta)));
+    player.setVolume(next);
+    announce(next === 100 ? "Lecture volume 100 percent, the maximum." : next === 0 ? "Lecture volume 0, silent." : `Lecture volume ${next} percent.`);
+  };
+
   const handleBookmark = async () => {
     if (!API_MOCK_MODE) {
       if (bookmarkBusy.current) return;
@@ -1789,15 +1845,9 @@ export default function Explanation({
       ...(readOnly ? { retry_saved_load: () => { setStorageError(null); setSavedLoadVersion((value) => value + 1); } } : {}),
       play_lecture: () => handleResumeVideo(),
       pause_lecture: () => pauseLectureAudio(),
-      seek_lecture: ({ direction, seconds }) => {
-        const player = playerRef.current;
-        if (!player?.seekTo) throw new Error("player not ready");
-        const now = player.getCurrentTime?.() ?? 0;
-        player.seekTo(
-          Math.max(0, now + (direction === "forward" ? seconds : -seconds)),
-          true,
-        );
-      },
+      seek_lecture: ({ direction, seconds }) => seekLectureBy(direction === "forward" ? seconds : -seconds),
+      seek_to_time: ({ seconds }) => seekLectureTo(seconds),
+      change_lecture_volume: ({ direction }) => stepLectureVolume(direction === "louder" ? VOLUME_STEP : -VOLUME_STEP),
       play_explanation: () => {
         const current = conversationRef.current;
         if (current.question) { current.answer(current.question.choices.includes("listen") ? "listen" : "replay"); return; }
@@ -1944,6 +1994,10 @@ export default function Explanation({
         voiceControlRef.current.toggle();
       },
       hearShortcuts: () => announce(LECTURE_SHORTCUTS_SPOKEN),
+      seekBack: () => seekLectureBy(-SEEK_STEP_SECONDS),
+      seekForward: () => seekLectureBy(SEEK_STEP_SECONDS),
+      volumeUp: () => stepLectureVolume(VOLUME_STEP),
+      volumeDown: () => stepLectureVolume(-VOLUME_STEP),
     };
   });
   useEffect(() => {
@@ -1956,7 +2010,7 @@ export default function Explanation({
       // back to the typed letter.
       const code =
         e.code ||
-        ({ ".": "Period", ",": "Comma" }[e.key] ??
+        ({ ".": "Period", ",": "Comma", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown" }[e.key] ??
           (e.key?.length === 1 ? `Key${e.key.toUpperCase()}` : ""));
       const actionId = lectureActionForCode(code);
       const action = actionId && shortcutsRef.current[actionId];

@@ -123,7 +123,7 @@ describe("Help sections", () => {
     expect(section.groups[1].items).toEqual(
       LECTURE_SHORTCUT_ROWS.map((row) => ({ keys: rowKeys(row), description: row.description })),
     );
-    expect(section.groups[1].items).toHaveLength(8);
+    expect(section.groups[1].items).toHaveLength(10);
     expect(section.paragraphs).toEqual([
       "On the lecture screen, shortcuts are ignored while you type in a text box such as the Ask box.",
     ]);

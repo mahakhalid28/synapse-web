@@ -109,13 +109,15 @@ const LEGACY_ROWS = [
   ["Alt+B", "Previous moment"],
   ["Alt+R", "Read: jump to the start of the explanation"],
   ["Alt+. / Alt+,", "Listen faster / slower"],
+  ["Alt+Left Arrow / Alt+Right Arrow", "Go back / forward 10 seconds in the lecture"],
+  ["Alt+Up Arrow / Alt+Down Arrow", "Lecture volume up / down"],
   ["Alt+M", "Start or stop a voice note"],
   ["Alt+K", "Hear this list"],
 ];
 const LEGACY_SPOKEN =
   "Keyboard shortcuts. " +
   LEGACY_ROWS.map(([k, d]) =>
-    `${k.replace("Alt+. / Alt+,", "Alt plus period, or Alt plus comma").replace("+", " plus ")}: ${d}.`,
+    `${k.replace("Alt+. / Alt+,", "Alt plus period, or Alt plus comma").replace(/Alt\+/g, "Alt plus ").replace(" / ", ", or ")}: ${d}.`,
   ).join(" ");
 
 const ALL_ROWS = [...LECTURE_SHORTCUT_ROWS, ...HOME_SHORTCUT_ROWS];
@@ -132,9 +134,10 @@ describe("the table on its own", () => {
   it("each key matches its code (Alt+<letter> <-> Key<LETTER>, Alt+. <-> Period, Alt+, <-> Comma)", () => {
     const expectedCode = { ".": "Period", ",": "Comma" };
     for (const { key, code } of ALL_ACTIONS) {
-      expect(key).toMatch(/^Alt\+(?:[A-Z]|\.|,)$/);
+      expect(key).toMatch(/^Alt\+(?:[A-Z]|\.|,|(?:Left|Right|Up|Down) Arrow)$/);
       const rest = key.slice(4);
-      expect(code, key).toBe(expectedCode[rest] ?? `Key${rest}`);
+      const arrow = rest.endsWith(" Arrow") ? `Arrow${rest.split(" ")[0]}` : null;
+      expect(code, key).toBe(arrow ?? expectedCode[rest] ?? `Key${rest}`);
     }
   });
 
@@ -167,7 +170,7 @@ describe("the table on its own", () => {
 });
 
 describe("existing behaviour is unchanged", () => {
-  it("shows the same eight rows with the same words, in the same order", () => {
+  it("shows the same rows (plus seek and volume) with the same words, in the same order", () => {
     expect(LECTURE_SHORTCUT_ROWS.map((row) => [rowKeys(row), row.description])).toEqual(LEGACY_ROWS);
   });
 
@@ -176,9 +179,10 @@ describe("existing behaviour is unchanged", () => {
     expect(rowSpokenKeys(LECTURE_SHORTCUT_ROWS[5])).toBe("Alt plus period, or Alt plus comma");
   });
 
-  it("has an action for each of the nine keys the lecture handler had", () => {
+  it("has an action for each key the lecture handler had, plus seek and volume", () => {
     expect(LECTURE_ACTION_IDS).toEqual([
-      "playPause", "listen", "next", "previous", "read", "faster", "slower", "voiceNote", "hearShortcuts",
+      "playPause", "listen", "next", "previous", "read", "faster", "slower",
+      "seekBack", "seekForward", "volumeUp", "volumeDown", "voiceNote", "hearShortcuts",
     ]);
   });
 });
@@ -198,7 +202,7 @@ const handled = (code, key, init = {}) =>
   fireEvent.keyDown(window, { code, key, altKey: true, ...init }) === false;
 
 const keyForCode = (code) =>
-  code.startsWith("Key") ? code.slice(3).toLowerCase() : { Period: ".", Comma: "," }[code] ?? "x";
+  code.startsWith("Key") ? code.slice(3).toLowerCase() : { Period: ".", Comma: ",", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown" }[code] ?? "x";
 
 describe("the lecture screen reacts to exactly the keys in the table", () => {
   beforeEach(() => {
@@ -215,7 +219,7 @@ describe("the lecture screen reacts to exactly the keys in the table", () => {
 
   const PROBE_CODES = [
     ...Array.from({ length: 26 }, (_, i) => `Key${String.fromCharCode(65 + i)}`),
-    "Period", "Comma", "Slash", "Semicolon", "Digit1", "Space", "Enter", "ArrowLeft", "Escape",
+    "Period", "Comma", "Slash", "Semicolon", "Digit1", "Space", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Escape",
   ];
 
   it("handles every key in the table, and no other key", async () => {
@@ -235,7 +239,8 @@ describe("the lecture screen reacts to exactly the keys in the table", () => {
     await openLecture();
     for (const row of LECTURE_SHORTCUT_ROWS) {
       for (const action of row.actions) {
-        expect(handled("", action.key.slice(4).toLowerCase()), action.key).toBe(true);
+        const typed = action.key.endsWith("Arrow") ? `Arrow${action.key.slice(4).split(" ")[0]}` : action.key.slice(4).toLowerCase();
+        expect(handled("", typed), action.key).toBe(true);
       }
     }
     expect(handled("", "z")).toBe(false);

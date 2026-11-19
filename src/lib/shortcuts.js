@@ -25,6 +25,20 @@ export const LECTURE_SHORTCUT_ROWS = [
       { id: "slower", code: "Comma", key: "Alt+," },
     ],
   },
+  {
+    description: "Go back / forward 10 seconds in the lecture",
+    actions: [
+      { id: "seekBack", code: "ArrowLeft", key: "Alt+Left Arrow" },
+      { id: "seekForward", code: "ArrowRight", key: "Alt+Right Arrow" },
+    ],
+  },
+  {
+    description: "Lecture volume up / down",
+    actions: [
+      { id: "volumeUp", code: "ArrowUp", key: "Alt+Up Arrow" },
+      { id: "volumeDown", code: "ArrowDown", key: "Alt+Down Arrow" },
+    ],
+  },
   { description: "Start or stop a voice note", actions: [{ id: "voiceNote", code: "KeyM", key: "Alt+M" }] },
   { description: "Hear this list", actions: [{ id: "hearShortcuts", code: "KeyK", key: "Alt+K" }] },
 ];

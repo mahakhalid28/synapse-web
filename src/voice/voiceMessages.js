@@ -4,9 +4,9 @@
 
 import { autoListenEnabled } from "./voicePrefs.js";
 
-/** How to answer a question Synapse just asked: after the tone when it listens by itself, else with Space. */
+/** How to answer a question Synapse just asked: after the tone when it listens by itself, else with Alt+T. */
 export function answerHint() {
-  return autoListenEnabled() ? "Answer after the tone." : "Press Space to answer.";
+  return autoListenEnabled() ? "Answer after the tone." : "Press Alt plus T to answer.";
 }
 
 const SCREEN_NAMES = { explanation: "lecture", home: "home", subject: "subject", timeline: "timeline", bookmarks: "bookmarks", library: "library", notes: "voice notes", quiz: "practice" };
@@ -35,11 +35,11 @@ export const MESSAGES = {
   noLecture: "Open a lecture first, then ask your question.",
   checking: "Let me check the lecture.",
   appQuestionUnknown: "I'm not sure how to do that by voice. Say help to hear what you can ask on this screen.",
-  appHowTo: (phrase) => `Yes, you can do that by voice. Press Space and ask me to ${phrase}.`,
-  appElsewhere: (phrase, screens) => `That works on the ${screens.map((s) => SCREEN_NAMES[s] ?? s).join(" or ")} screen. There, press Space and ask me to ${phrase}.`,
+  appHowTo: (phrase) => `Yes, you can do that by voice. Press Alt plus T and ask me to ${phrase}.`,
+  appElsewhere: (phrase, screens) => `That works on the ${screens.map((s) => SCREEN_NAMES[s] ?? s).join(" or ")} screen. There, press Alt plus T and ask me to ${phrase}.`,
   confirmPrompt: (phrase) => autoListenEnabled()
     ? `Do you want to ${phrase}? Say yes or no after the tone.`
-    : `Do you want to ${phrase}? Press Space and say yes or no.`,
+    : `Do you want to ${phrase}? Press Alt plus T and say yes or no.`,
 };
 
 const SPOKEN_SYMBOLS = { _: "underscore", ".": "dot", "-": "dash" };
@@ -67,6 +67,8 @@ const PHRASES = {
   play_lecture: () => "play the lecture",
   pause_lecture: () => "pause the lecture",
   seek_lecture: (a) => `go ${a.direction} ${a.seconds} seconds`,
+  seek_to_time: (a) => `go to ${Math.floor(a.seconds / 60)} minutes ${a.seconds % 60} seconds`,
+  change_lecture_volume: (a) => `make the lecture ${a.direction}`,
   play_explanation: () => "play the explanation",
   pause_explanation: () => "pause the explanation",
   replay_explanation: () => "replay the explanation",
@@ -198,15 +200,15 @@ const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 const SCREEN_INTROS = {
   welcome: {
-    first: () => "Welcome to Synapse. First, choose how you want to learn. Accessibility mode hides the video and keeps the lecture audio. Study mode shows the video. Press Space and say accessibility mode or study mode, then say get started. You can press Space to talk to me on every screen.",
-    short: () => "Welcome to Synapse. Press Space and say accessibility mode or study mode, then get started.",
+    first: () => "Welcome to Synapse. First, choose how you want to learn. Accessibility mode hides the video and keeps the lecture audio. Study mode shows the video. Press Alt plus T and say accessibility mode or study mode, then say get started. You can press Alt plus T to talk to me on every screen.",
+    short: () => "Welcome to Synapse. Press Alt plus T and say accessibility mode or study mode, then get started.",
   },
   login: {
-    first: () => "Sign in to Synapse. Press Space and say my username is, and then spell it. Then type your password and press Enter. Your password is never taken by voice. To make a new account, say create an account.",
-    short: () => "Sign in. Press Space and say your username, then type your password and press Enter.",
+    first: () => "Sign in to Synapse. Press Alt plus T and say my username is, and then spell it. Then type your password and press Enter. Your password is never taken by voice. To make a new account, say create an account.",
+    short: () => "Sign in. Press Alt plus T and say your username, then type your password and press Enter.",
   },
   signup: {
-    first: () => "Create a Synapse account. Press Space and say my username is, and then spell it. Then type a password of at least 8 characters and press Enter. Your password is never taken by voice. If you already have an account, say I already have an account.",
+    first: () => "Create a Synapse account. Press Alt plus T and say my username is, and then spell it. Then type a password of at least 8 characters and press Enter. Your password is never taken by voice. If you already have an account, say I already have an account.",
     short: () => "Create account. Say your username, then type a password and press Enter.",
   },
   restoring: {
@@ -214,35 +216,35 @@ const SCREEN_INTROS = {
     short: () => "Checking your saved session.",
   },
   home: {
-    first: () => "Home. Synapse turns lecture videos into spoken explanations. Press Space and say search for a topic, like search for photosynthesis, or say paste the link to use a copied YouTube link. Say help at any time to hear what you can say.",
-    short: () => "Home. Press Space and say search, or help.",
+    first: () => "Home. Synapse turns lecture videos into spoken explanations. Press Alt plus T and say search for a topic, like search for photosynthesis, or say paste the link to use a copied YouTube link. Say help at any time to hear what you can say.",
+    short: () => "Home. Press Alt plus T and say search, or help.",
   },
   subject: {
-    first: (n) => `Subject lectures.${n ? ` ${count(n, "lecture is", "lectures are")} listed.` : ""} Press Space and say read the results, or choose the first one, then start learning. Or say go home.`,
+    first: (n) => `Subject lectures.${n ? ` ${count(n, "lecture is", "lectures are")} listed.` : ""} Press Alt plus T and say read the results, or choose the first one, then start learning. Or say go home.`,
     short: (n) => `Subject lectures.${n ? ` ${count(n, "lecture", "lectures")}.` : ""}`,
   },
   explanation: {
-    first: () => "Lecture screen. The lecture pauses at each important moment and offers a spoken explanation. Press Space and say play the lecture, pause, explain this part, or help.",
+    first: () => "Lecture screen. The lecture pauses at each important moment and offers a spoken explanation. Press Alt plus T and say play the lecture, pause, explain this part, or help.",
     short: () => "Lecture screen.",
   },
   timeline: {
-    first: (n) => `Timeline of this lecture's moments.${n ? ` ${count(n, "moment is", "moments are")} listed.` : ""} Press Space and say read the list, or go to moment two.`,
+    first: (n) => `Timeline of this lecture's moments.${n ? ` ${count(n, "moment is", "moments are")} listed.` : ""} Press Alt plus T and say read the list, or go to moment two.`,
     short: (n) => `Timeline.${n ? ` ${count(n, "moment", "moments")}.` : ""}`,
   },
   bookmarks: {
-    first: (n) => `Bookmarks, the explanations you saved.${n ? ` ${count(n, "bookmark is", "bookmarks are")} listed. Press Space and say read my saved items, or open the first one.` : " Press Space and say go home to find a lecture."}`,
+    first: (n) => `Bookmarks, the explanations you saved.${n ? ` ${count(n, "bookmark is", "bookmarks are")} listed. Press Alt plus T and say read my saved items, or open the first one.` : " Press Alt plus T and say go home to find a lecture."}`,
     short: (n) => `Bookmarks.${n ? ` ${count(n, "bookmark", "bookmarks")}.` : ""}`,
   },
   library: {
-    first: (n) => `Library, the explanations you listened to before.${n ? ` ${count(n, "item is", "items are")} listed. Press Space and say read my saved items, or play the audio of the first item.` : " Press Space and say go home to find a lecture."}`,
+    first: (n) => `Library, the explanations you listened to before.${n ? ` ${count(n, "item is", "items are")} listed. Press Alt plus T and say read my saved items, or play the audio of the first item.` : " Press Alt plus T and say go home to find a lecture."}`,
     short: (n) => `Library.${n ? ` ${count(n, "item", "items")}.` : ""}`,
   },
   notes: {
-    first: (n) => `Voice notes, the recordings you made during lectures.${n ? ` ${count(n, "note is", "notes are")} listed. Press Space and say what is in this list, or open the first one.` : " You have not recorded any yet; on the lecture screen, say record a voice note."}`,
+    first: (n) => `Voice notes, the recordings you made during lectures.${n ? ` ${count(n, "note is", "notes are")} listed. Press Alt plus T and say what is in this list, or open the first one.` : " You have not recorded any yet; on the lecture screen, say record a voice note."}`,
     short: (n) => `Voice notes.${n ? ` ${count(n, "note", "notes")}.` : ""}`,
   },
   quiz: {
-    first: () => "Practice questions for this lecture. Press Space and say start the practice questions, or say a mode and a number, like start an assessment with eight questions. Then say option two to answer, check my answer, or read the question.",
+    first: () => "Practice questions for this lecture. Press Alt plus T and say start the practice questions, or say a mode and a number, like start an assessment with eight questions. Then say option two to answer, check my answer, or read the question.",
     short: () => "Practice questions.",
   },
 };

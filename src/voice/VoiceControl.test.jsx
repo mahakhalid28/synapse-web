@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { axe } from "jest-axe";
-import VoiceControl, { SPACE_HOLD_MS, isTypingTarget } from "./VoiceControl";
+import VoiceControl, { isTypingTarget } from "./VoiceControl";
 import { VoiceAudioContext, createVoiceAudioRegistry } from "./voiceAudio";
 import { VoiceActionsContext, createActionRegistry } from "./voiceActions";
 import "../test/domMatchers.js";
@@ -150,8 +150,8 @@ describe("the Talk button", () => {
     mount();
     const button = talkButton();
     expect(button).toHaveAccessibleName("Talk");
-    expect(button).toHaveAttribute("aria-keyshortcuts", "Space Alt+T");
-    expect(button).toHaveAccessibleDescription(/Space.*again to stop.*hold Space.*Alt\+T/i);
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Alt+T");
+    expect(button).toHaveAccessibleDescription(/Alt\+T.*again to stop/i);
   });
 
   it("changes its name as the turn progresses", async () => {
@@ -234,95 +234,24 @@ describe("Alt+T", () => {
 });
 
 describe("Space", () => {
-  it("toggles listening from anywhere on the page: tap to start, tap to stop", async () => {
-    const { capture, deps } = mount();
-    await space();
-    await spaceUp();
-    expect(talkButton()).toHaveAccessibleName("Listening…");
-    await space();
-    await spaceUp();
-    expect(capture.stop).toHaveBeenCalledTimes(1);
-    expect(deps.toWav16k).toHaveBeenCalledTimes(1);
-    expect(talkButton()).toHaveAccessibleName("Talk");
-  });
-
-  it("is push-to-talk when held: releasing after a long press ends the turn", async () => {
-    const { capture } = mount();
-    await space();
-    expect(talkButton()).toHaveAccessibleName("Listening…");
-    await settle(SPACE_HOLD_MS + 100);
-    await spaceUp();
-    expect(capture.stop).toHaveBeenCalledTimes(1);
-    expect(talkButton()).toHaveAccessibleName("Talk");
-  });
-
-  it("claims the key on a focused button so the button is not pressed", async () => {
+  it("no longer starts voice control and is left to the page", async () => {
     mount();
-    const other = document.createElement("button");
-    const clicked = vi.fn();
-    other.addEventListener("click", clicked);
-    document.body.appendChild(other);
-    try {
-      other.focus();
-      expect(await space(other)).toBe(false);
-      expect(await spaceUp(other)).toBe(false);
-      expect(clicked).not.toHaveBeenCalled();
-      expect(talkButton()).toHaveAccessibleName("Listening…");
-    } finally {
-      other.remove();
-    }
-  });
-
-  it.each([
-    ["a text input", () => Object.assign(document.createElement("input"), { type: "text" })],
-    ["a search input", () => Object.assign(document.createElement("input"), { type: "search" })],
-    ["a password input", () => Object.assign(document.createElement("input"), { type: "password" })],
-    ["a textarea", () => document.createElement("textarea")],
-  ])("types a space in %s instead of listening", async (_label, make) => {
-    mount();
-    const field = make();
-    document.body.appendChild(field);
-    try {
-      field.focus();
-      expect(await space(field)).toBe(true);
-      expect(await spaceUp(field)).toBe(true);
-      expect(talkButton()).toHaveAccessibleName("Talk");
-    } finally {
-      field.remove();
-    }
-  });
-
-  it("ignores key repeat while held", async () => {
-    const { deps } = mount();
-    await space();
-    await space(document.body, { repeat: true });
-    await space(document.body, { repeat: true });
-    expect(deps.createCapture).toHaveBeenCalledTimes(1);
-    expect(talkButton()).toHaveAccessibleName("Listening…");
-  });
-
-  it("stops a turn that was started with Alt+T", async () => {
-    const { capture } = mount();
-    await press();
-    await space();
-    await spaceUp();
-    expect(capture.stop).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([["Ctrl", { ctrlKey: true }], ["Alt", { altKey: true }], ["Shift", { shiftKey: true }], ["Meta", { metaKey: true }]])(
-    "does not react to Space with %s",
-    async (_label, init) => {
-      mount();
-      expect(await space(document.body, init)).toBe(true);
-      expect(talkButton()).toHaveAccessibleName("Talk");
-    },
-  );
-
-  it("leaves Space alone while Help is open (the control is disabled)", async () => {
-    mount({ disabled: true });
     expect(await space()).toBe(true);
     expect(await spaceUp()).toBe(true);
     expect(talkButton()).toHaveAccessibleName("Talk");
+  });
+
+  it("does not press-and-hold a focused button away", async () => {
+    mount();
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    try {
+      other.focus();
+      expect(await space(other)).toBe(true);
+      expect(talkButton()).toHaveAccessibleName("Talk");
+    } finally {
+      other.remove();
+    }
   });
 });
 
@@ -404,7 +333,7 @@ describe("screen introductions", () => {
     const { rerenderWith } = mount({ screen: "bookmarks" });
     expect(liveText()).toBe("");
     await settle(700);
-    expect(liveText()).toMatch(/^Bookmarks, the explanations you saved\..*Press Space/);
+    expect(liveText()).toMatch(/^Bookmarks, the explanations you saved\..*Press Alt plus T/);
     rerenderWith({ screen: "home" });
     await settle(700);
     expect(liveText()).toMatch(/^Home\. Synapse turns lecture videos/);
@@ -427,7 +356,7 @@ describe("screen introductions", () => {
       </VoiceActionsContext.Provider>,
     );
     await settle(700);
-    expect(liveText()).toMatch(/3 items are listed\. Press Space and say read my saved items, or play the audio of the first item\./);
+    expect(liveText()).toMatch(/3 items are listed\. Press Alt plus T and say read my saved items, or play the audio of the first item\./);
   });
 
   it("does not talk over the microphone", async () => {

@@ -24,7 +24,7 @@ const LIST_SCREENS = new Set(["home", "subject", "library", "bookmarks", "notes"
 // Commands that change what is playing: after them the paused audio must stay as the command left it.
 export const PLAYBACK_COMMANDS = new Set([
   "request_explanation", "skip_explanation",
-  "play_lecture", "pause_lecture", "seek_lecture", "play_explanation", "pause_explanation",
+  "play_lecture", "pause_lecture", "seek_lecture", "seek_to_time", "play_explanation", "pause_explanation",
   "replay_explanation", "next_moment", "previous_moment", "go_to_moment", "toggle_voice_note",
   "play_item_audio", "play_note", "stop_note_audio", "open_note_explanation",
   "open_item", "read_saved_item",

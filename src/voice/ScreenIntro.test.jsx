@@ -21,8 +21,8 @@ afterEach(() => vi.useRealTimers());
 describe("ScreenIntro", () => {
   it.each([
     ["welcome", /^Welcome to Synapse\. First, choose how you want to learn\..*say accessibility mode or study mode, then say get started/],
-    ["login", /^Sign in to Synapse\. Press Space and say my username is, and then spell it\. Then type your password.*never taken by voice/],
-    ["signup", /^Create a Synapse account\. Press Space and say my username is.*never taken by voice/],
+    ["login", /^Sign in to Synapse\. Press Alt plus T and say my username is, and then spell it\. Then type your password.*never taken by voice/],
+    ["signup", /^Create a Synapse account\. Press Alt plus T and say my username is.*never taken by voice/],
     ["restoring", /^Checking your saved session\. Please wait\.$/],
   ])("explains what to do on the %s screen", async (name, expected) => {
     render(<ScreenIntro screen={name} />);
@@ -42,7 +42,7 @@ describe("ScreenIntro", () => {
     localStorage.setItem(INTRO_SEEN_KEY, JSON.stringify(["login"]));
     render(<ScreenIntro screen="login" />);
     await settle(700);
-    expect(spoken()).toBe("Sign in. Press Space and say your username, then type your password and press Enter.");
+    expect(spoken()).toBe("Sign in. Press Alt plus T and say your username, then type your password and press Enter.");
   });
 
   it("introduces the new screen when the learner moves from sign in to create account", async () => {
@@ -83,9 +83,9 @@ describe("screenIntro texts", () => {
     expect(screenIntro("nowhere")).toBe("");
   });
 
-  it("tell the learner to press Space, never Alt+T", () => {
+  it("tell the learner to press Alt plus T, never Space", () => {
     for (const name of ["welcome", "home", "subject", "explanation", "timeline", "bookmarks", "library", "notes", "quiz"]) {
-      expect(screenIntro(name, { first: true, itemCount: 2 })).not.toMatch(/Alt/);
+      expect(screenIntro(name, { first: true, itemCount: 2 })).not.toMatch(/Space/);
     }
   });
 });

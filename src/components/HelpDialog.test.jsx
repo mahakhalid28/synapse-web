@@ -85,6 +85,8 @@ describe("what it is", () => {
       "Alt+B — Previous moment",
       "Alt+R — Read: jump to the start of the explanation",
       "Alt+. / Alt+, — Listen faster / slower",
+      "Alt+Left Arrow / Alt+Right Arrow — Go back / forward 10 seconds in the lecture",
+      "Alt+Up Arrow / Alt+Down Arrow — Lecture volume up / down",
       "Alt+M — Start or stop a voice note",
       "Alt+K — Hear this list",
     ]);
